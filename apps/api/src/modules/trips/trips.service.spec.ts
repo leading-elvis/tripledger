@@ -274,9 +274,10 @@ describe('TripsService', () => {
         ],
       );
 
-      // joinByInviteCode 內部會呼叫 findUnique 兩次：
+      // joinByInviteCode 內部會呼叫 findUnique 三次：
       // 1. 查找 inviteCode 的旅程
-      // 2. findById 驗證成員權限（加入後）
+      // 2. $transaction 內查詢 premium 狀態
+      // 3. findById 驗證成員權限（加入後）
       const tripWithNewMember = {
         ...tripWithOneOwner,
         members: [
@@ -291,9 +292,11 @@ describe('TripsService', () => {
 
       prismaMock.trip.findUnique
         .mockResolvedValueOnce(tripWithOneOwner) // joinByInviteCode 查詢邀請碼
+        .mockResolvedValueOnce({ premiumExpiresAt: null }) // $transaction 內查詢 premium 狀態
         .mockResolvedValueOnce(tripWithNewMember); // findById 驗證（此時用戶已是成員）
 
       prismaMock.user.findUnique.mockResolvedValue(testUser1);
+      prismaMock.tripMember.count.mockResolvedValue(1); // 目前成員數量（< 5 免費限制）
       prismaMock.tripMember.create.mockResolvedValue(
         createTripMemberFixture({ userId: testUser1.id }),
       );

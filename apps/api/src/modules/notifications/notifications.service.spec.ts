@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FirebaseService } from '../../common/firebase/firebase.service';
 import { createPrismaMock, PrismaMock } from '../../../test/mocks/prisma.mock';
 import { testUser1, testUser2, testUser3 } from '../../../test/fixtures/users.fixture';
 
@@ -34,6 +35,7 @@ describe('NotificationsService', () => {
       providers: [
         NotificationsService,
         { provide: PrismaService, useValue: prismaMock },
+        { provide: FirebaseService, useValue: { sendToDevice: jest.fn(), sendToDevices: jest.fn() } },
       ],
     }).compile();
 
@@ -97,7 +99,7 @@ describe('NotificationsService', () => {
 
   describe('markAsRead', () => {
     it('應標記通知為已讀', async () => {
-      prismaMock.notification.findUnique.mockResolvedValue(mockNotification);
+      prismaMock.notification.findFirst.mockResolvedValue(mockNotification);
       prismaMock.notification.update.mockResolvedValue({
         ...mockNotification,
         isRead: true,
@@ -113,7 +115,7 @@ describe('NotificationsService', () => {
     });
 
     it('應拒絕標記不存在的通知', async () => {
-      prismaMock.notification.findUnique.mockResolvedValue(null);
+      prismaMock.notification.findFirst.mockResolvedValue(null);
 
       await expect(
         service.markAsRead('non-existent', testUser1.id),
@@ -121,10 +123,8 @@ describe('NotificationsService', () => {
     });
 
     it('應拒絕標記其他用戶的通知', async () => {
-      prismaMock.notification.findUnique.mockResolvedValue({
-        ...mockNotification,
-        userId: testUser2.id, // 不是 testUser1
-      });
+      // findFirst with { id, userId } 找不到時回傳 null
+      prismaMock.notification.findFirst.mockResolvedValue(null);
 
       await expect(
         service.markAsRead('notification-1', testUser1.id),
@@ -147,7 +147,7 @@ describe('NotificationsService', () => {
 
   describe('delete', () => {
     it('應刪除通知', async () => {
-      prismaMock.notification.findUnique.mockResolvedValue(mockNotification);
+      prismaMock.notification.findFirst.mockResolvedValue(mockNotification);
       prismaMock.notification.delete.mockResolvedValue(mockNotification);
 
       const result = await service.delete('notification-1', testUser1.id);
@@ -159,7 +159,7 @@ describe('NotificationsService', () => {
     });
 
     it('應拒絕刪除不存在的通知', async () => {
-      prismaMock.notification.findUnique.mockResolvedValue(null);
+      prismaMock.notification.findFirst.mockResolvedValue(null);
 
       await expect(
         service.delete('non-existent', testUser1.id),
@@ -167,10 +167,8 @@ describe('NotificationsService', () => {
     });
 
     it('應拒絕刪除其他用戶的通知', async () => {
-      prismaMock.notification.findUnique.mockResolvedValue({
-        ...mockNotification,
-        userId: testUser2.id,
-      });
+      // findFirst with { id, userId } 找不到時回傳 null
+      prismaMock.notification.findFirst.mockResolvedValue(null);
 
       await expect(
         service.delete('notification-1', testUser1.id),

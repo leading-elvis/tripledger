@@ -138,6 +138,8 @@ describe('SettlementController', () => {
         'user-2',
         500,
         mockUser.id,
+        undefined,
+        undefined,
       );
       expect(result).toEqual(mockSettlement);
     });

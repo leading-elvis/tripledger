@@ -27,6 +27,9 @@ export type PrismaMock = {
   billItemShare: MockPrismaModel;
   settlement: MockPrismaModel;
   notification: MockPrismaModel;
+  virtualMember: MockPrismaModel;
+  refreshToken: MockPrismaModel;
+  deviceToken: MockPrismaModel;
   $transaction: jest.Mock;
 };
 
@@ -50,17 +53,8 @@ const createModelMock = (): MockPrismaModel => ({
 /**
  * 建立完整的 PrismaService Mock
  */
-export const createPrismaMock = (): PrismaMock => ({
-  user: createModelMock(),
-  trip: createModelMock(),
-  tripMember: createModelMock(),
-  bill: createModelMock(),
-  billShare: createModelMock(),
-  billItem: createModelMock(),
-  billItemShare: createModelMock(),
-  settlement: createModelMock(),
-  notification: createModelMock(),
-  $transaction: jest.fn((callback) => callback({
+export const createPrismaMock = (): PrismaMock => {
+  const mock: PrismaMock = {
     user: createModelMock(),
     trip: createModelMock(),
     tripMember: createModelMock(),
@@ -70,8 +64,17 @@ export const createPrismaMock = (): PrismaMock => ({
     billItemShare: createModelMock(),
     settlement: createModelMock(),
     notification: createModelMock(),
-  })),
-});
+    virtualMember: createModelMock(),
+    refreshToken: createModelMock(),
+    deviceToken: createModelMock(),
+    $transaction: jest.fn(),
+  };
+  // $transaction passes the same mock objects to the callback
+  // so that test setups like prismaMock.settlement.findUnique.mockResolvedValue(...)
+  // are visible inside transactions
+  mock.$transaction.mockImplementation((callback) => callback(mock));
+  return mock;
+};
 
 /**
  * 重置所有 Mock
@@ -87,6 +90,9 @@ export const resetPrismaMock = (mock: PrismaMock): void => {
     'billItemShare',
     'settlement',
     'notification',
+    'virtualMember',
+    'refreshToken',
+    'deviceToken',
   ] as const;
 
   for (const model of models) {

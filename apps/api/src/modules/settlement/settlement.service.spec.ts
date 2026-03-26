@@ -166,16 +166,16 @@ describe('SettlementService', () => {
       const user2 = result.find((b) => b.userId === testUser2.id);
       const user3 = result.find((b) => b.userId === testUser3.id);
 
-      // A: paid 1500, owed 666.67 -> balance ≈ +833.33
+      // A: paid 1500, owed 666.67 -> balance = Math.round(833.33) = 833
       expect(user1?.paid).toBe(1500);
       expect(user1?.owed).toBeCloseTo(666.67, 1);
-      expect(user1?.balance).toBeCloseTo(833.33, 1);
+      expect(user1?.balance).toBe(833);
 
-      // B: paid 500, owed 666.67 -> balance ≈ -166.67
+      // B: paid 500, owed 666.67 -> balance = Math.round(-166.67) = -167
       expect(user2?.paid).toBe(500);
       expect(user2?.owed).toBeCloseTo(666.67, 1);
 
-      // C: paid 0, owed 666.66 -> balance ≈ -666.66
+      // C: paid 0, owed 666.66 -> balance = Math.round(-666.66) = -667
       expect(user3?.paid).toBe(0);
     });
   });
@@ -224,11 +224,11 @@ describe('SettlementService', () => {
       expect(result.length).toBeGreaterThanOrEqual(1);
       expect(result.length).toBeLessThanOrEqual(2);
 
-      // 驗證總金額正確
+      // 驗證總金額正確（金額已四捨五入為整數）
       // A: +833.33, B: -166.67, C: -666.67
-      // 總結算金額 = 166.67 + 666.67 = 833.34 (債務人總額)
+      // 結算金額 = Math.round(666.67) + Math.round(166.66) = 667 + 167 = 834
       const totalSettled = result.reduce((sum, s) => sum + s.amount, 0);
-      expect(totalSettled).toBeCloseTo(833.34, 0);
+      expect(totalSettled).toBeCloseTo(834, 0);
     });
 
     it('應處理四人複雜債務網路', async () => {
@@ -306,6 +306,8 @@ describe('SettlementService', () => {
     beforeEach(() => {
       tripsServiceMock.findById.mockResolvedValue(testTrip1);
       prismaMock.user.findUnique.mockResolvedValue(testUser1);
+      prismaMock.tripMember.findUnique.mockResolvedValue({ tripId: 'trip-1', userId: testUser2.id, role: 'MEMBER' });
+      prismaMock.settlement.findFirst.mockResolvedValue(null); // 無既有待處理結算
       prismaMock.settlement.create.mockResolvedValue(
         createSettlementFixture({
           id: 'new-settlement',

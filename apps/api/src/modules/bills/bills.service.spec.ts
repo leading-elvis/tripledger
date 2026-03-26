@@ -6,6 +6,7 @@ import { BillsService } from './bills.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TripsService } from '../trips/trips.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ExchangeRateService } from '../exchange-rate/exchange-rate.service';
 import { createPrismaMock, PrismaMock } from '../../../test/mocks/prisma.mock';
 import {
   createTripsServiceMock,
@@ -37,6 +38,7 @@ describe('BillsService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: TripsService, useValue: tripsServiceMock },
         { provide: NotificationsService, useValue: notificationsServiceMock },
+        { provide: ExchangeRateService, useValue: { getRate: jest.fn(), convert: jest.fn(), getAllRates: jest.fn() } },
       ],
     }).compile();
 
@@ -356,7 +358,11 @@ describe('BillsService', () => {
         members: [{ userId: testUser1.id }],
       });
 
-      const input = createBillInputFixture(SplitType.EQUAL);
+      const input = {
+        ...createBillInputFixture(SplitType.EQUAL),
+        participants: [{ userId: testUser1.id }],
+        amount: 1000,
+      };
       await service.create(testUser1.id, input);
 
       // 因為只有建立者，所以不應發送通知
@@ -583,10 +589,12 @@ describe('BillsService', () => {
       ];
       tripsServiceMock.findById.mockResolvedValue(testTrip1);
       prismaMock.bill.findMany.mockResolvedValue(mockBills);
+      prismaMock.bill.count.mockResolvedValue(2);
 
       const result = await service.findAllByTrip('trip-1', testUser1.id);
 
-      expect(result).toEqual(mockBills);
+      expect(result.data).toEqual(mockBills);
+      expect(result.pagination).toBeDefined();
       expect(prismaMock.bill.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { tripId: 'trip-1' },

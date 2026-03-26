@@ -4,6 +4,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { createPrismaMock } from '../../../test/mocks/prisma.mock';
 import {
   createUsersServiceMock,
   createJwtServiceMock,
@@ -29,6 +31,7 @@ describe('AuthService', () => {
         { provide: UsersService, useValue: usersServiceMock },
         { provide: JwtService, useValue: jwtServiceMock },
         { provide: ConfigService, useValue: configServiceMock },
+        { provide: PrismaService, useValue: createPrismaMock() },
       ],
     }).compile();
 
