@@ -367,11 +367,131 @@ export class SmartLineItemParser implements LineItemParser {
     zone: ClassifiedLine[],
     items: ReceiptLineItem[],
   ): void {
+    // 7-ELEVEN 等便利商店收據的特殊格式：
+    // 品名全部列在前面，價格全部列在後面
+    // 例如：
+    //   麥香奶茶CAN340       ← ITEM_NAME_ONLY
+    //   *左岸咖啡館奶茶       ← ITEM_NAME_ONLY
+    //   (A)統 陽光豆漿        ← ITEM_NAME_ONLY
+    //   $25x 2  $50 TX      ← PRICE_DETAIL
+    //   $35x1   $35 TX      ← PRICE_DETAIL
+    //   $25x1   $25 TX      ← PRICE_DETAIL
+    //
+    // 策略：偵測是否有連續品名群組，如果有則用「先收集再配對」模式
+
+    // 偵測批量模式：zone 開頭是否有 >=2 個連續品名，後面緊跟 >=2 個連續價格
+    // 例如：品名A、品名B、品名C、$25x2、$35x1、$25x1
+    // 而非：品名A、$25x2、品名B、$35x1（這是交替模式）
+    let leadingNames = 0;
+    let followingPrices = 0;
+    let phase: 'names' | 'prices' | 'done' = 'names';
+    for (const line of zone) {
+      if (phase === 'names') {
+        if (line.type === LineType.ITEM_NAME_ONLY) {
+          leadingNames++;
+        } else if (line.type === LineType.PRICE_DETAIL) {
+          phase = 'prices';
+          followingPrices++;
+        } else {
+          break; // 其他類型中斷
+        }
+      } else if (phase === 'prices') {
+        if (line.type === LineType.PRICE_DETAIL) {
+          followingPrices++;
+        } else {
+          break;
+        }
+      }
+    }
+
+    if (leadingNames >= 2 && followingPrices >= 2) {
+      // 批量配對模式：品名和價格分開列出
+      this.extractBatchTwoLineItems(zone, items);
+    } else {
+      // 交替配對模式：品名→價格→品名→價格
+      this.extractAlternatingTwoLineItems(zone, items);
+    }
+  }
+
+  /**
+   * 批量配對模式：品名群組 + 價格群組，依序配對
+   * 適用於 7-ELEVEN 等便利商店收據
+   */
+  private extractBatchTwoLineItems(
+    zone: ClassifiedLine[],
+    items: ReceiptLineItem[],
+  ): void {
+    // 收集所有品名和價格
+    const names: string[] = [];
+    const prices: ClassifiedLine[] = [];
+
+    for (const line of zone) {
+      if (line.type === LineType.ITEM_NAME_ONLY) {
+        names.push(this.cleanItemName(line.text));
+      } else if (line.type === LineType.PRICE_DETAIL) {
+        prices.push(line);
+      } else if (line.type === LineType.DISCOUNT) {
+        // 折扣行可能夾帶品名（如「自帶杯獎勵5元(咖啡1)」）
+        // 先處理已收集的品名+價格，再處理折扣
+        const name = this.extractDiscountName(line.text);
+        items.push({
+          name,
+          quantity: 1,
+          subtotal: line.subtotal ?? 0,
+          isDiscount: true,
+        });
+      } else if (line.type === LineType.ITEM_WITH_PRICE) {
+        const name = this.extractItemNameFromPriceLine(line.text);
+        items.push({
+          name: this.cleanItemName(name),
+          quantity: 1,
+          subtotal: line.subtotal ?? 0,
+          isDiscount: (line.subtotal ?? 0) < 0,
+        });
+      }
+    }
+
+    // 依序配對品名和價格
+    const pairCount = Math.min(names.length, prices.length);
+    // 從 items 陣列的開頭插入配對結果（折扣和 ITEM_WITH_PRICE 已在後面）
+    const pairedItems: ReceiptLineItem[] = [];
+    for (let i = 0; i < pairCount; i++) {
+      pairedItems.push({
+        name: names[i],
+        unitPrice: prices[i].unitPrice,
+        quantity: prices[i].quantity ?? 1,
+        subtotal: prices[i].subtotal ?? 0,
+        isDiscount: false,
+      });
+    }
+
+    // 未配對的價格（品名不夠）
+    for (let i = pairCount; i < prices.length; i++) {
+      pairedItems.push({
+        name: '未知品項',
+        unitPrice: prices[i].unitPrice,
+        quantity: prices[i].quantity ?? 1,
+        subtotal: prices[i].subtotal ?? 0,
+        isDiscount: false,
+      });
+    }
+
+    // 插入到 items 開頭（折扣行已在後面）
+    items.unshift(...pairedItems);
+  }
+
+  /**
+   * 交替配對模式：品名→價格→品名→價格
+   * 適用於一般收據
+   */
+  private extractAlternatingTwoLineItems(
+    zone: ClassifiedLine[],
+    items: ReceiptLineItem[],
+  ): void {
     let pendingName: string | null = null;
     let pendingNameIdx = -1;
     const consumedNameIndices = new Set<number>();
 
-    // Phase 1: 依序配對
     for (let i = 0; i < zone.length; i++) {
       const line = zone[i];
 
@@ -411,21 +531,20 @@ export class SmartLineItemParser implements LineItemParser {
       }
     }
 
-    // Phase 2: 回填 — 將「未知品項」替換為 OCR 順序錯亂的品名
+    // 回填：將「未知品項」替換為 OCR 順序錯亂的未消費品名
     const hasUnknown = items.some((it) => it.name === '未知品項');
     if (hasUnknown) {
-      // 找到第一個價格行的位置，只取其後的未消費品名（排除店名等標頭）
-      const firstPriceIdx = zone.findIndex(
-        (l) => l.type === LineType.PRICE_DETAIL || l.type === LineType.ITEM_WITH_PRICE,
-      );
-
+      // 排除店名/品牌名（如 7-ELEVEN）— 這些不是品項名稱
+      const storeBrandPatterns = /^7-ELEVEN|^7-ELEVEn|^FamilyMart|^全家|^萊爾富|^OK超商/i;
       const lateNames: string[] = [];
-      for (let i = Math.max(0, firstPriceIdx); i < zone.length; i++) {
+      for (let i = 0; i < zone.length; i++) {
         if (zone[i].type === LineType.ITEM_NAME_ONLY && !consumedNameIndices.has(i)) {
-          lateNames.push(this.cleanItemName(zone[i].text));
+          const cleaned = this.cleanItemName(zone[i].text);
+          if (!storeBrandPatterns.test(cleaned) && !storeBrandPatterns.test(zone[i].text)) {
+            lateNames.push(cleaned);
+          }
         }
       }
-
       let nameIdx = 0;
       for (const item of items) {
         if (item.name === '未知品項' && nameIdx < lateNames.length) {
