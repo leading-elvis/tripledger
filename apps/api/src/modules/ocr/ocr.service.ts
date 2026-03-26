@@ -25,7 +25,7 @@ export class OcrService {
   private readonly logger = new Logger(OcrService.name);
 
   /** 免費用戶每月 Vision API 掃描上限 */
-  private readonly FREE_MONTHLY_SCAN_LIMIT = 30;
+  private readonly FREE_MONTHLY_SCAN_LIMIT = 10;
 
   constructor(
     private readonly textParser: TextParserService,
@@ -410,26 +410,41 @@ export class OcrService {
     rawText: string,
     detectedLanguage?: string,
   ): { currency: string; confidence: number } | null {
-    // 優先級 1: 明確貨幣符號
-    if (/₩/.test(rawText)) return { currency: 'KRW', confidence: 0.95 };
-    if (/฿/.test(rawText)) return { currency: 'THB', confidence: 0.95 };
-    if (/원/.test(rawText)) return { currency: 'KRW', confidence: 0.9 };
-    if (/บาท/.test(rawText)) return { currency: 'THB', confidence: 0.9 };
-    if (/円/.test(rawText)) return { currency: 'JPY', confidence: 0.9 };
+    // 多幣別偵測：收集所有找到的幣別符號
+    const found: string[] = [];
+    if (/₩/.test(rawText)) found.push('KRW');
+    if (/฿/.test(rawText)) found.push('THB');
+    if (/원/.test(rawText) && !found.includes('KRW')) found.push('KRW');
+    if (/บาท/.test(rawText) && !found.includes('THB')) found.push('THB');
+    if (/円/.test(rawText)) found.push('JPY');
+    if (/¥/.test(rawText) && !found.includes('JPY')) found.push('YEN'); // 模糊，需消歧
+    if (/NT\$|NTD/.test(rawText)) found.push('TWD');
+    if (/\$/.test(rawText) && !found.includes('TWD')) found.push('USD_AMBIG');
 
-    // 優先級 2: 模糊符號 + 語言消歧
-    if (/¥/.test(rawText)) {
-      if (detectedLanguage === 'ja') return { currency: 'JPY', confidence: 0.9 };
-      if (detectedLanguage?.startsWith('zh')) return { currency: 'CNY', confidence: 0.9 };
-      return { currency: 'JPY', confidence: 0.6 }; // 預設 JPY（旅行場景更常見）
+    // 多幣別收據：降低信心分數讓用戶確認
+    const uniqueCurrencies = found.filter(c => c !== 'YEN' && c !== 'USD_AMBIG');
+    if (uniqueCurrencies.length > 1) {
+      this.logger.debug(`偵測到多幣別收據: ${uniqueCurrencies.join(', ')}`);
+      // 取第一個明確幣別，但信心低
+      return { currency: uniqueCurrencies[0], confidence: 0.4 };
     }
 
-    if (/NT\$|NTD/.test(rawText)) return { currency: 'TWD', confidence: 0.95 };
+    // 單幣別：正常推斷
+    // 優先級 1: 明確貨幣符號
+    if (found.includes('KRW')) return { currency: 'KRW', confidence: 0.95 };
+    if (found.includes('THB')) return { currency: 'THB', confidence: 0.95 };
+    if (found.includes('JPY')) return { currency: 'JPY', confidence: 0.9 };
+    if (found.includes('TWD')) return { currency: 'TWD', confidence: 0.95 };
 
-    // $ 不單獨推斷 — 需要語言或上下文
-    if (/\$/.test(rawText)) {
+    // 優先級 2: 模糊符號 + 語言消歧
+    if (found.includes('YEN')) {
+      if (detectedLanguage === 'ja') return { currency: 'JPY', confidence: 0.9 };
+      if (detectedLanguage?.startsWith('zh')) return { currency: 'CNY', confidence: 0.9 };
+      return { currency: 'JPY', confidence: 0.6 };
+    }
+
+    if (found.includes('USD_AMBIG')) {
       if (detectedLanguage === 'en') return { currency: 'USD', confidence: 0.5 };
-      // 不推斷，返回 null
     }
 
     // 優先級 3: 語言 → 預設貨幣

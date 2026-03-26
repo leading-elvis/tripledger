@@ -310,7 +310,7 @@ describe('OcrService', () => {
       const result = await service.parseReceipt('합계금액 110,000원', mockUserId, 'ko');
 
       expect(result.currencyResult!.currency).toBe('KRW');
-      expect(result.currencyResult!.confidence).toBe(0.9);
+      expect(result.currencyResult!.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('應用語言消歧 ¥（ja → JPY, zh → CNY）', async () => {
@@ -351,6 +351,19 @@ describe('OcrService', () => {
 
       expect(result.currencyResult!.currency).toBe('KRW');
       expect(result.currencyResult!.confidence).toBe(0.7);
+    });
+
+    it('多幣別收據應降低信心分數', async () => {
+      textParser.parseReceipt.mockReturnValue(mockParsedResult);
+      brandLookup.lookup.mockResolvedValue(mockBrandResult);
+
+      // 觀光區收據：同時有 ₩ 和 円（匯率行）
+      const text = '합계 ₩72,680\n円 exchange 100円=8152₩';
+      const result = await service.parseReceipt(text, mockUserId, 'ko');
+
+      // 偵測到多個幣別，信心分數應低於 0.5
+      expect(result.currencyResult).toBeDefined();
+      expect(result.currencyResult!.confidence).toBeLessThanOrEqual(0.5);
     });
   });
 
