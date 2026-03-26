@@ -67,7 +67,7 @@ class AuthRepository {
         throw AuthException('無法取得 LINE 用戶資料');
       }
 
-      final lineId = userProfile.userId;
+      final accessToken = result.accessToken.value;
       final name = userProfile.displayName;
       final avatarUrl = userProfile.pictureUrl ?? '';
 
@@ -75,11 +75,11 @@ class AuthRepository {
         debugPrint('LINE 登入成功: $name');
       }
 
-      // 發送到後端 API
+      // 發送 access token 到後端（後端會向 LINE API 驗證並取得真實 userId）
       final response = await apiClient.post(
         '${ApiConfig.auth}/line',
         data: {
-          'lineId': lineId,
+          'accessToken': accessToken,
           'name': name,
           'avatarUrl': avatarUrl,
         },
@@ -113,21 +113,25 @@ class AuthRepository {
         throw AuthException('Google 登入已取消');
       }
 
-      final googleId = googleUser.id;
-      final email = googleUser.email;
-      final name = googleUser.displayName ?? email.split('@').first;
+      // 取得 Google ID Token 供後端驗證
+      final googleAuth = await googleUser.authentication;
+      final idToken = googleAuth.idToken;
+      if (idToken == null) {
+        throw AuthException('無法取得 Google ID Token');
+      }
+
+      final name = googleUser.displayName ?? googleUser.email.split('@').first;
       final avatarUrl = googleUser.photoUrl ?? '';
 
       if (kDebugMode) {
         debugPrint('Google 登入成功: $name');
       }
 
-      // 發送到後端 API
+      // 發送 ID token 到後端（後端會驗證 token 並取得真實 googleId/email）
       final response = await apiClient.post(
         '${ApiConfig.auth}/google',
         data: {
-          'googleId': googleId,
-          'email': email,
+          'idToken': idToken,
           'name': name,
           'avatarUrl': avatarUrl,
         },
