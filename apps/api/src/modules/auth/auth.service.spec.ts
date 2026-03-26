@@ -14,6 +14,24 @@ import {
 } from '../../../test/mocks/services.mock';
 import { testUser1, lineUser, googleUser } from '../../../test/fixtures/users.fixture';
 
+// Mock global fetch for LINE API
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+// Mock google-auth-library
+const mockVerifyIdToken = jest.fn();
+jest.mock('google-auth-library', () => ({
+  OAuth2Client: jest.fn().mockImplementation(() => ({
+    verifyIdToken: mockVerifyIdToken,
+  })),
+}));
+
+// Mock apple-signin-auth
+const mockAppleVerifyIdToken = jest.fn();
+jest.mock('apple-signin-auth', () => ({
+  verifyIdToken: (...args: unknown[]) => mockAppleVerifyIdToken(...args),
+}));
+
 describe('AuthService', () => {
   let service: AuthService;
   let usersServiceMock: UsersServiceMock;
@@ -48,12 +66,23 @@ describe('AuthService', () => {
       avatarUrl: 'https://example.com/avatar.jpg',
     };
 
+    beforeEach(() => {
+      // 預設 LINE API 回傳成功
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ userId: 'line-id-12345' }),
+      });
+    });
+
     it('應為新用戶建立帳號並返回 tokens', async () => {
       usersServiceMock.findByLineId.mockResolvedValue(null);
       usersServiceMock.create.mockResolvedValue(lineUser);
 
-      const result = await service.loginWithLine('line-id-12345', lineProfile);
+      const result = await service.loginWithLine('valid-access-token', lineProfile);
 
+      expect(mockFetch).toHaveBeenCalledWith('https://api.line.me/v2/profile', {
+        headers: { Authorization: 'Bearer valid-access-token' },
+      });
       expect(usersServiceMock.findByLineId).toHaveBeenCalledWith('line-id-12345');
       expect(usersServiceMock.create).toHaveBeenCalledWith({
         lineId: 'line-id-12345',
@@ -68,7 +97,7 @@ describe('AuthService', () => {
     it('應為現有用戶直接返回 tokens', async () => {
       usersServiceMock.findByLineId.mockResolvedValue(lineUser);
 
-      const result = await service.loginWithLine('line-id-12345', lineProfile);
+      const result = await service.loginWithLine('valid-access-token', lineProfile);
 
       expect(usersServiceMock.findByLineId).toHaveBeenCalledWith('line-id-12345');
       expect(usersServiceMock.create).not.toHaveBeenCalled();
@@ -79,42 +108,74 @@ describe('AuthService', () => {
     it('應產生有效的 JWT tokens', async () => {
       usersServiceMock.findByLineId.mockResolvedValue(lineUser);
 
-      const result = await service.loginWithLine('line-id-12345', lineProfile);
+      const result = await service.loginWithLine('valid-access-token', lineProfile);
 
       expect(jwtServiceMock.sign).toHaveBeenCalled();
       expect(result.accessToken).toBe('mock-jwt-token');
+    });
+
+    it('應拒絕無效的 LINE access token', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 401,
+      });
+
+      await expect(
+        service.loginWithLine('invalid-token', lineProfile),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('應在 LINE API 呼叫失敗時拋出錯誤', async () => {
+      mockFetch.mockRejectedValue(new Error('Network error'));
+
+      await expect(
+        service.loginWithLine('valid-access-token', lineProfile),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 
   describe('loginWithGoogle', () => {
     const googleProfile = {
-      email: 'google@gmail.com',
       name: 'Google 用戶',
       avatarUrl: 'https://example.com/google-avatar.jpg',
     };
+
+    beforeEach(() => {
+      // 預設 Google verifyIdToken 回傳成功
+      mockVerifyIdToken.mockResolvedValue({
+        getPayload: () => ({
+          sub: 'google-id-12345',
+          email: 'google@gmail.com',
+        }),
+      });
+    });
 
     it('應為新用戶建立帳號', async () => {
       usersServiceMock.findByGoogleId.mockResolvedValue(null);
       usersServiceMock.findByEmail.mockResolvedValue(null);
       usersServiceMock.create.mockResolvedValue(googleUser);
 
-      const result = await service.loginWithGoogle('google-id-12345', googleProfile);
+      const result = await service.loginWithGoogle('valid-id-token', googleProfile);
 
+      expect(mockVerifyIdToken).toHaveBeenCalledWith({
+        idToken: 'valid-id-token',
+        audience: undefined, // GOOGLE_CLIENT_ID not set in test config
+      });
       expect(usersServiceMock.findByGoogleId).toHaveBeenCalledWith('google-id-12345');
-      expect(usersServiceMock.findByEmail).toHaveBeenCalledWith(googleProfile.email);
+      expect(usersServiceMock.findByEmail).toHaveBeenCalledWith('google@gmail.com');
       expect(usersServiceMock.create).toHaveBeenCalledWith({
         googleId: 'google-id-12345',
-        email: googleProfile.email,
+        email: 'google@gmail.com',
         name: googleProfile.name,
         avatarUrl: googleProfile.avatarUrl,
       });
-      expect(result.user.email).toBe(googleProfile.email);
+      expect(result.user.email).toBe('google@gmail.com');
     });
 
     it('應將 Google 帳號連結到相同 email 的現有用戶', async () => {
       const existingUserWithEmail = {
         ...testUser1,
-        email: googleProfile.email,
+        email: 'google@gmail.com',
         googleId: null,
       };
       const updatedUser = { ...existingUserWithEmail, googleId: 'google-id-12345' };
@@ -123,7 +184,7 @@ describe('AuthService', () => {
       usersServiceMock.findByEmail.mockResolvedValue(existingUserWithEmail);
       usersServiceMock.update.mockResolvedValue(updatedUser);
 
-      const result = await service.loginWithGoogle('google-id-12345', googleProfile);
+      const result = await service.loginWithGoogle('valid-id-token', googleProfile);
 
       expect(usersServiceMock.update).toHaveBeenCalledWith(existingUserWithEmail.id, {
         googleId: 'google-id-12345',
@@ -135,12 +196,20 @@ describe('AuthService', () => {
     it('應為現有 Google 用戶直接登入', async () => {
       usersServiceMock.findByGoogleId.mockResolvedValue(googleUser);
 
-      const result = await service.loginWithGoogle('google-id-12345', googleProfile);
+      const result = await service.loginWithGoogle('valid-id-token', googleProfile);
 
       expect(usersServiceMock.findByGoogleId).toHaveBeenCalledWith('google-id-12345');
       expect(usersServiceMock.findByEmail).not.toHaveBeenCalled();
       expect(usersServiceMock.create).not.toHaveBeenCalled();
       expect(result.user.id).toBe(googleUser.id);
+    });
+
+    it('應拒絕無效的 Google ID token', async () => {
+      mockVerifyIdToken.mockRejectedValue(new Error('Invalid token'));
+
+      await expect(
+        service.loginWithGoogle('invalid-id-token', googleProfile),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 

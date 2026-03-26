@@ -6,14 +6,14 @@ const MAX_ID_LENGTH = 100;
 const MAX_NAME_LENGTH = 100;
 const MAX_EMAIL_LENGTH = 254; // RFC 5321
 const MAX_URL_LENGTH = 2048;
-const MAX_TOKEN_LENGTH = 2048;
+const MAX_TOKEN_LENGTH = 8192; // ID tokens can be larger than 2048
 const MAX_PASSWORD_LENGTH = 100;
 
 export class LineLoginDto {
-  @ApiProperty({ description: 'LINE User ID' })
+  @ApiProperty({ description: 'LINE Access Token（伺服器端驗證用）' })
   @IsString()
-  @MaxLength(MAX_ID_LENGTH)
-  lineId: string;
+  @MaxLength(MAX_TOKEN_LENGTH)
+  accessToken: string;
 
   @ApiProperty({ description: '用戶名稱' })
   @IsString()
@@ -28,15 +28,10 @@ export class LineLoginDto {
 }
 
 export class GoogleLoginDto {
-  @ApiProperty({ description: 'Google User ID' })
+  @ApiProperty({ description: 'Google ID Token（伺服器端驗證用）' })
   @IsString()
-  @MaxLength(MAX_ID_LENGTH)
-  googleId: string;
-
-  @ApiProperty({ description: 'Email' })
-  @IsEmail()
-  @MaxLength(MAX_EMAIL_LENGTH)
-  email: string;
+  @MaxLength(MAX_TOKEN_LENGTH)
+  idToken: string;
 
   @ApiProperty({ description: '用戶名稱' })
   @IsString()

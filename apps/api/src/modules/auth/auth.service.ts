@@ -1,6 +1,8 @@
 import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { OAuth2Client } from 'google-auth-library';
+import * as appleSignin from 'apple-signin-auth';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { randomUUID, timingSafeEqual } from 'crypto';
@@ -26,21 +28,55 @@ export interface TokenResponse {
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly googleClient: OAuth2Client;
 
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly usersService: UsersService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) {
+    this.googleClient = new OAuth2Client(
+      this.configService.get<string>('GOOGLE_CLIENT_ID'),
+    );
+  }
 
   /**
    * LINE 登入處理
+   * 安全性：使用 access token 向 LINE API 驗證並取得真實用戶資訊
    */
   async loginWithLine(
-    lineId: string,
+    accessToken: string,
     profile: { name: string; avatarUrl?: string },
   ): Promise<TokenResponse> {
+    // 伺服器端驗證：呼叫 LINE Profile API 取得真實 userId
+    let lineId: string;
+    try {
+      const response = await fetch('https://api.line.me/v2/profile', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        this.logger.warn(`LINE token 驗證失敗: HTTP ${response.status}`);
+        throw new UnauthorizedException('LINE 登入驗證失敗：無效的 access token');
+      }
+
+      const lineProfile = await response.json();
+      lineId = lineProfile.userId;
+
+      if (!lineId) {
+        throw new UnauthorizedException('LINE 登入驗證失敗：無法取得用戶 ID');
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      this.logger.error(`LINE API 呼叫失敗: ${error}`);
+      throw new UnauthorizedException('LINE 登入驗證失敗');
+    }
+
     let user = await this.usersService.findByLineId(lineId);
 
     if (!user) {
@@ -56,23 +92,53 @@ export class AuthService {
 
   /**
    * Google 登入處理
+   * 安全性：使用 Google Auth Library 驗證 ID Token 並取得真實用戶資訊
    */
   async loginWithGoogle(
-    googleId: string,
-    profile: { email: string; name: string; avatarUrl?: string },
+    idToken: string,
+    profile: { name: string; avatarUrl?: string },
   ): Promise<TokenResponse> {
+    // 伺服器端驗證：使用 google-auth-library 驗證 ID Token
+    let googleId: string;
+    let email: string | undefined;
+    try {
+      const googleClientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken,
+        audience: googleClientId,
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload || !payload.sub) {
+        throw new UnauthorizedException('Google 登入驗證失敗：無效的 token payload');
+      }
+
+      googleId = payload.sub;
+      email = payload.email;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      this.logger.error(`Google token 驗證失敗: ${error}`);
+      throw new UnauthorizedException('Google 登入驗證失敗：無效的 ID Token');
+    }
+
     let user = await this.usersService.findByGoogleId(googleId);
 
     if (!user) {
       // 檢查是否有相同 email 的用戶
-      const existingUser = await this.usersService.findByEmail(profile.email);
-      if (existingUser) {
-        // 連結 Google 帳號到現有用戶
-        user = await this.usersService.update(existingUser.id, { googleId });
-      } else {
+      if (email) {
+        const existingUser = await this.usersService.findByEmail(email);
+        if (existingUser) {
+          // 連結 Google 帳號到現有用戶
+          user = await this.usersService.update(existingUser.id, { googleId });
+        }
+      }
+
+      if (!user) {
         user = await this.usersService.create({
           googleId,
-          email: profile.email,
+          email,
           name: profile.name,
           avatarUrl: profile.avatarUrl,
         });
@@ -84,7 +150,7 @@ export class AuthService {
 
   /**
    * Apple 登入處理
-   * 安全性：驗證 identityToken 確保來自 Apple
+   * 安全性：使用 apple-signin-auth 驗證 identityToken 的 JWT 簽名
    *
    * 注意：Apple 只在用戶首次授權時提供 email 和 name
    * 後續登入不會再提供這些資訊，需依賴 userIdentifier (appleId)
@@ -94,48 +160,27 @@ export class AuthService {
     identityToken: string,
     profile: { email?: string; name: string },
   ): Promise<TokenResponse> {
-    // 驗證 Apple Identity Token
-    // 注意：實際部署時需要驗證 token 簽名
-    // 可使用 apple-signin-auth 套件進行完整驗證
+    // 使用 apple-signin-auth 驗證 Apple Identity Token（含 JWT 簽名驗證）
     try {
-      // 解析 JWT token（基本驗證）
-      const tokenParts = identityToken.split('.');
-      if (tokenParts.length !== 3) {
-        throw new UnauthorizedException('無效的 Apple Identity Token 格式');
-      }
+      const expectedBundleId = this.configService.get<string>('APPLE_CLIENT_ID') || 'com.leadinginstr.tripledger';
 
-      // 解析 payload
-      const payload = JSON.parse(
-        Buffer.from(tokenParts[1], 'base64').toString('utf8'),
-      );
+      // verifyIdToken 會：
+      // 1. 從 Apple JWKS 取得公鑰
+      // 2. 驗證 JWT 簽名
+      // 3. 驗證 iss, aud, exp 等 claims
+      const payload = await appleSignin.verifyIdToken(identityToken, {
+        audience: expectedBundleId,
+      });
 
       // 驗證 token 中的 sub 與傳入的 appleId 一致
       if (payload.sub !== appleId) {
         throw new UnauthorizedException('Apple ID 驗證失敗：ID 不符');
       }
-
-      // 驗證 aud (audience) 是否為我們的 Bundle ID
-      const expectedBundleId = this.configService.get<string>('APPLE_CLIENT_ID') || 'com.leadinginstr.tripledger';
-      if (payload.aud !== expectedBundleId) {
-        this.logger.warn(`Apple Token aud 不符: 預期 ${expectedBundleId}, 實際 ${payload.aud}`);
-        // 不拋出錯誤，因為可能有多個 client ID
-      }
-
-      // 驗證 iss (issuer) 是否來自 Apple
-      if (payload.iss !== 'https://appleid.apple.com') {
-        throw new UnauthorizedException('Apple ID 驗證失敗：非 Apple 簽發');
-      }
-
-      // 驗證 token 是否過期
-      const now = Math.floor(Date.now() / 1000);
-      if (payload.exp && payload.exp < now) {
-        throw new UnauthorizedException('Apple Identity Token 已過期');
-      }
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      this.logger.error(`Apple Token 解析失敗: ${error}`);
+      this.logger.error(`Apple Token 驗證失敗: ${error}`);
       throw new UnauthorizedException('Apple 登入驗證失敗');
     }
 

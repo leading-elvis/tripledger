@@ -28,7 +28,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'LINE 登入' })
   async loginWithLine(@Body() dto: LineLoginDto) {
-    return this.authService.loginWithLine(dto.lineId, {
+    return this.authService.loginWithLine(dto.accessToken, {
       name: dto.name,
       avatarUrl: dto.avatarUrl,
     });
@@ -39,8 +39,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Google 登入' })
   async loginWithGoogle(@Body() dto: GoogleLoginDto) {
-    return this.authService.loginWithGoogle(dto.googleId, {
-      email: dto.email,
+    return this.authService.loginWithGoogle(dto.idToken, {
       name: dto.name,
       avatarUrl: dto.avatarUrl,
     });
