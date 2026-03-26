@@ -1,0 +1,99 @@
+# Cloud Build 配置 - 自動建置和部署到 Cloud Run
+# 使用方式: gcloud builds submit --config cloudbuild.yaml
+# 注意: 從專案根目錄執行，因為需要完整的 monorepo 上下文
+
+substitutions:
+  _REGION: asia-east1
+  _SERVICE_NAME: tripledger-api
+  _IMAGE_TAG: latest
+  _CLOUD_SQL_INSTANCE: tripledger-484503:asia-east1:tripledger-db
+
+steps:
+  # Step 1: Build the Docker image (from root context, using api's Dockerfile)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${_IMAGE_TAG}'
+      - '-f'
+      - 'apps/api/Dockerfile'
+      - '.'
+
+  # Step 2: Push the image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${_IMAGE_TAG}'
+
+  # Step 3: Run database migrations
+  - name: 'node:20-slim'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # 安裝必要工具
+        apt-get update && apt-get install -y curl
+
+        # 安裝 Cloud SQL Proxy
+        curl -o /workspace/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.0/cloud-sql-proxy.linux.amd64
+        chmod +x /workspace/cloud-sql-proxy
+
+        # 啟動 Cloud SQL Proxy（TCP 模式，背景執行）
+        /workspace/cloud-sql-proxy --port 5432 ${_CLOUD_SQL_INSTANCE} &
+        sleep 5
+
+        # 安裝依賴並執行遷移
+        cd apps/api
+        npm ci
+        npx prisma generate
+
+        # 使用遷移專用的連線字串
+        DATABASE_URL="$$DATABASE_URL_MIGRATION" npx prisma migrate deploy
+
+        echo "✅ 資料庫遷移完成"
+    secretEnv: ['DATABASE_URL_MIGRATION']
+
+  # Step 4: Deploy to Cloud Run with Cloud SQL connection
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - 'gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${_IMAGE_TAG}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--add-cloudsql-instances'
+      - '${_CLOUD_SQL_INSTANCE}'
+      - '--set-env-vars'
+      - 'NODE_ENV=production'
+      - '--set-secrets'
+      - 'DATABASE_URL=database-url:latest,JWT_SECRET=jwt-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest,FIREBASE_PROJECT_ID=firebase-project-id:latest,FIREBASE_CLIENT_EMAIL=firebase-client-email:latest,FIREBASE_PRIVATE_KEY=firebase-private-key:latest,APPSTORE_ISSUER_ID=appstore-issuer-id:latest,APPSTORE_KEY_ID=appstore-key-id:latest,APPSTORE_PRIVATE_KEY=appstore-private-key:latest,APPLE_BUNDLE_ID=apple-bundle-id:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,EXCHANGE_RATE_API_KEY=exchange-rate-api-key:latest,ALLOW_DEMO_LOGIN_FOR_APP_REVIEW=allow-demo-login:latest,DEMO_USERNAME=demo-username:latest,DEMO_PASSWORD=demo-password:latest'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--timeout'
+      - '300'
+
+images:
+  - 'gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${_IMAGE_TAG}'
+
+# Secret Manager 設定（供遷移步驟使用）
+# 注意：database-url-migration 需要使用 localhost 格式：
+# postgresql://USER:PASSWORD@localhost:5432/tripledger
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/database-url-migration/versions/latest
+      env: 'DATABASE_URL_MIGRATION'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -1,0 +1,533 @@
+// Prisma Schema for TripLedger
+// 團體旅遊分帳系統資料庫結構
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// 用戶 (User)
+// ============================================
+model User {
+  id        String   @id @default(uuid())
+  email     String?  @unique
+  name      String
+  avatarUrl String?  @map("avatar_url")
+  lineId    String?  @unique @map("line_id")
+  discordId String?  @unique @map("discord_id")
+  googleId  String?  @unique @map("google_id")
+  appleId   String?  @unique @map("apple_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // 內購相關欄位
+  isAdFree    Boolean   @default(false) @map("is_ad_free")
+  adFreeSince DateTime? @map("ad_free_since")
+
+  // 關聯
+  tripMembers      TripMember[]
+  paidBills        Bill[]       @relation("Payer")
+  billShares       BillShare[]
+  billItemShares   BillItemShare[]
+  sentPayments     Settlement[] @relation("Payer")
+  receivedPayments Settlement[] @relation("Receiver")
+  notifications    Notification[]
+  deviceTokens     DeviceToken[]
+  refreshTokens    RefreshToken[]
+  purchases        Purchase[]
+  brandMappings    UserBrandMapping[]
+  ocrScanQuota     OcrScanQuota?
+
+  // 虛擬人員關聯
+  createdVirtualMembers VirtualMember[] @relation("VirtualMemberCreator")
+  mergedVirtualMembers  VirtualMember[] @relation("VirtualMemberMerged")
+
+  @@map("users")
+}
+
+// ============================================
+// 旅程 (Trip)
+// ============================================
+model Trip {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  coverImage  String?   @map("cover_image")
+  startDate   DateTime? @map("start_date")
+  endDate     DateTime? @map("end_date")
+  inviteCode  String    @unique @default(uuid()) @map("invite_code")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // 內購相關欄位
+  premiumExpiresAt DateTime? @map("premium_expires_at")
+
+  // 多國貨幣支援
+  defaultCurrency Currency @default(TWD) @map("default_currency")
+
+  // 關聯
+  members        TripMember[]
+  virtualMembers VirtualMember[]
+  bills          Bill[]
+  settlements    Settlement[]
+  purchases      Purchase[]
+
+  @@map("trips")
+}
+
+// ============================================
+// 旅程成員 (TripMember)
+// ============================================
+model TripMember {
+  id       String     @id @default(uuid())
+  tripId   String     @map("trip_id")
+  userId   String     @map("user_id")
+  role     MemberRole @default(MEMBER)
+  nickname String?
+  joinedAt DateTime   @default(now()) @map("joined_at")
+
+  // 關聯
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tripId, userId])
+  @@map("trip_members")
+}
+
+enum MemberRole {
+  OWNER  // 建立者
+  ADMIN  // 管理員
+  MEMBER // 一般成員
+}
+
+// ============================================
+// 虛擬人員 (VirtualMember) - 未註冊的分帳參與者
+// ============================================
+model VirtualMember {
+  id        String    @id @default(uuid())
+  tripId    String    @map("trip_id")
+  name      String                          // 虛擬成員顯示名稱
+  createdBy String    @map("created_by")    // 建立者的 User ID
+  mergedTo  String?   @map("merged_to")     // 合併後的 User ID (null = 未合併)
+  mergedAt  DateTime? @map("merged_at")     // 合併時間
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  // 關聯
+  trip             Trip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  creator          User            @relation("VirtualMemberCreator", fields: [createdBy], references: [id])
+  mergedUser       User?           @relation("VirtualMemberMerged", fields: [mergedTo], references: [id], onDelete: SetNull)
+  paidBills        Bill[]          @relation("VirtualPayer")
+  billShares       BillShare[]
+  billItemShares   BillItemShare[]
+  sentPayments     Settlement[]    @relation("VirtualPayer")
+  receivedPayments Settlement[]    @relation("VirtualReceiver")
+
+  @@unique([tripId, name])
+  @@map("virtual_members")
+}
+
+// ============================================
+// 帳單 (Bill)
+// ============================================
+model Bill {
+  id              String       @id @default(uuid())
+  tripId          String       @map("trip_id")
+  payerId         String?      @map("payer_id")
+  virtualPayerId  String?      @map("virtual_payer_id")  // 虛擬人員付款者
+  title           String
+  amount          Decimal      @db.Decimal(12, 2)
+  category        BillCategory
+  splitType       SplitType    @default(EQUAL) @map("split_type")
+  receiptImage    String?      @map("receipt_image")
+  note            String?
+  paidAt          DateTime     @default(now()) @map("paid_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  // 多國貨幣支援
+  currency     Currency @default(TWD)                            // 帳單貨幣
+  exchangeRate Decimal? @db.Decimal(18, 8) @map("exchange_rate") // 建立時匯率
+  baseAmount   Decimal? @db.Decimal(12, 2) @map("base_amount")   // 轉換後金額（旅程預設貨幣）
+
+  // 關聯
+  trip         Trip           @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  payer        User?          @relation("Payer", fields: [payerId], references: [id], onDelete: SetNull)
+  virtualPayer VirtualMember? @relation("VirtualPayer", fields: [virtualPayerId], references: [id], onDelete: SetNull)
+  shares       BillShare[]
+  items        BillItem[]
+
+  // 電子發票關聯
+  importedInvoice ImportedInvoice?
+
+  @@index([tripId, createdAt])
+  @@index([payerId])
+  @@map("bills")
+}
+
+enum BillCategory {
+  FOOD          // 餐飲
+  TRANSPORT     // 交通
+  ACCOMMODATION // 住宿
+  ATTRACTION    // 景點門票
+  SHOPPING      // 購物
+  OTHER         // 其他
+}
+
+enum SplitType {
+  EQUAL      // 平均分攤
+  EXACT      // 精確金額
+  PERCENTAGE // 百分比
+  SHARES     // 份數
+  ITEMIZED   // 細項分攤
+}
+
+// ============================================
+// 帳單分攤明細 (BillShare)
+// ============================================
+model BillShare {
+  id              String  @id @default(uuid())
+  billId          String  @map("bill_id")
+  userId          String? @map("user_id")
+  virtualMemberId String? @map("virtual_member_id")  // 虛擬人員分攤
+  amount          Decimal @db.Decimal(12, 2)
+
+  // 關聯
+  bill          Bill           @relation(fields: [billId], references: [id], onDelete: Cascade)
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  virtualMember VirtualMember? @relation(fields: [virtualMemberId], references: [id], onDelete: SetNull)
+
+  @@index([billId])
+  @@index([userId])
+  @@index([virtualMemberId])
+  @@map("bill_shares")
+}
+
+// ============================================
+// 帳單細項 (BillItem)
+// ============================================
+model BillItem {
+  id     String  @id @default(uuid())
+  billId String  @map("bill_id")
+  name   String  // 品項名稱
+  amount Decimal @db.Decimal(12, 2)
+
+  // 關聯
+  bill   Bill            @relation(fields: [billId], references: [id], onDelete: Cascade)
+  shares BillItemShare[]
+
+  @@map("bill_items")
+}
+
+// ============================================
+// 細項分攤明細 (BillItemShare)
+// ============================================
+model BillItemShare {
+  id              String  @id @default(uuid())
+  billItemId      String  @map("bill_item_id")
+  userId          String? @map("user_id")
+  virtualMemberId String? @map("virtual_member_id")  // 虛擬人員分攤
+  amount          Decimal @db.Decimal(12, 2)
+
+  // 關聯
+  billItem      BillItem       @relation(fields: [billItemId], references: [id], onDelete: Cascade)
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  virtualMember VirtualMember? @relation(fields: [virtualMemberId], references: [id], onDelete: SetNull)
+
+  @@index([billItemId])
+  @@index([virtualMemberId])
+  @@map("bill_item_shares")
+}
+
+// ============================================
+// 結算記錄 (Settlement)
+// ============================================
+model Settlement {
+  id                String           @id @default(uuid())
+  tripId            String           @map("trip_id")
+  payerId           String?          @map("payer_id")
+  receiverId        String?          @map("receiver_id")
+  virtualPayerId    String?          @map("virtual_payer_id")    // 虛擬人員付款者
+  virtualReceiverId String?          @map("virtual_receiver_id") // 虛擬人員收款者
+  amount            Decimal          @db.Decimal(12, 2)
+  currency          Currency         @default(TWD)  // 結算幣種（繼承自旅程預設貨幣）
+  status            SettlementStatus @default(PENDING)
+  settledAt         DateTime?        @map("settled_at")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  // 關聯
+  trip            Trip           @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  payer           User?          @relation("Payer", fields: [payerId], references: [id], onDelete: SetNull)
+  receiver        User?          @relation("Receiver", fields: [receiverId], references: [id], onDelete: SetNull)
+  virtualPayer    VirtualMember? @relation("VirtualPayer", fields: [virtualPayerId], references: [id], onDelete: SetNull)
+  virtualReceiver VirtualMember? @relation("VirtualReceiver", fields: [virtualReceiverId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@map("settlements")
+}
+
+enum SettlementStatus {
+  PENDING   // 待付款
+  CONFIRMED // 已確認
+  CANCELLED // 已取消
+}
+
+// ============================================
+// 通知 (Notification)
+// ============================================
+model Notification {
+  id           String           @id @default(uuid())
+  userId       String           @map("user_id")
+  type         NotificationType
+  title        String
+  message      String
+  tripId       String?          @map("trip_id")
+  tripName     String?          @map("trip_name")
+  billId       String?          @map("bill_id")
+  settlementId String?          @map("settlement_id")
+  fromUserId   String?          @map("from_user_id")
+  fromUserName String?          @map("from_user_name")
+  amount       Decimal?         @db.Decimal(12, 2)
+  currency     Currency?
+  isRead       Boolean          @default(false) @map("is_read")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  // 關聯
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  NEW_BILL           // 新帳單
+  BILL_UPDATED       // 帳單更新
+  BILL_DELETED       // 帳單刪除
+  SETTLEMENT_REQUEST // 結算請求
+  SETTLEMENT_CONFIRMED // 結算確認
+  MEMBER_JOINED      // 成員加入
+  MEMBER_LEFT        // 成員離開
+  TRIP_INVITE        // 旅程邀請
+  REMINDER           // 提醒
+}
+
+// ============================================
+// Refresh Token (RefreshToken) - Token 輪換
+// ============================================
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  createdAt DateTime @default(now()) @map("created_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  // 關聯
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ============================================
+// 裝置 Token (DeviceToken) - FCM 推播
+// ============================================
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  platform  String   // android, ios, web
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // 關聯
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@map("device_tokens")
+}
+
+// ============================================
+// 內購記錄 (Purchase) - IAP
+// ============================================
+model Purchase {
+  id          String      @id @default(uuid())
+  userId      String      @map("user_id")
+  productId   String      @map("product_id") // App Store / Google Play 產品 ID
+  productType ProductType @map("product_type")
+
+  // 消耗型專用欄位（旅程進階功能）
+  tripId      String?  @map("trip_id")
+  daysGranted Int?     @map("days_granted") // 購買的天數
+
+  // 收據驗證資訊
+  platform      PurchasePlatform
+  receiptData   String           @db.Text @map("receipt_data")
+  transactionId String           @unique @map("transaction_id")
+
+  // 時間戳記
+  purchasedAt DateTime  @default(now()) @map("purchased_at")
+  expiresAt   DateTime? @map("expires_at") // 消耗型的到期時間
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // 關聯
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trip Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([tripId])
+  @@index([transactionId])
+  @@map("purchases")
+}
+
+enum ProductType {
+  CONSUMABLE     // 消耗型（旅程進階功能）
+  NON_CONSUMABLE // 非消耗型（永久去廣告）
+}
+
+enum PurchasePlatform {
+  IOS
+  ANDROID
+}
+
+// ============================================
+// 企業品牌對照表 (CompanyBrandMapping) - OCR 智慧辨識
+// ============================================
+model CompanyBrandMapping {
+  id          String        @id @default(uuid())
+  companyName String        @unique @map("company_name") // 公司登記名稱
+  taxId       String?       @unique @map("tax_id")       // 統一編號
+  brandName   String        @map("brand_name")           // 品牌名稱
+  nameJa      String?       @map("name_ja")              // 日文品牌名
+  nameKo      String?       @map("name_ko")              // 韓文品牌名
+  category    BillCategory?                              // 預設分類
+  aliases     String[]      @default([])                 // 別名列表
+  isVerified  Boolean       @default(false) @map("is_verified")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([companyName])
+  @@index([taxId])
+  @@index([brandName])
+  @@map("company_brand_mappings")
+}
+
+// ============================================
+// 用戶品牌對照表 (UserBrandMapping) - 個人化學習
+// ============================================
+model UserBrandMapping {
+  id              String @id @default(uuid())
+  userId          String @map("user_id")
+  companyName     String @map("company_name")     // 原始公司名稱
+  customBrandName String @map("custom_brand_name") // 用戶自訂品牌名稱
+  useCount        Int    @default(1) @map("use_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // 關聯
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyName])
+  @@index([userId])
+  @@map("user_brand_mappings")
+}
+
+// ============================================
+// 匯入發票記錄 (ImportedInvoice) - 電子發票整合
+// ============================================
+model ImportedInvoice {
+  id            String       @id @default(uuid())
+  invoiceNumber String       @unique @map("invoice_number") // AB-12345678
+  invoiceDate   DateTime     @map("invoice_date")
+  sellerTaxId   String       @map("seller_tax_id")          // 賣方統編
+  sellerName    String       @map("seller_name")            // 賣方名稱
+  totalAmount   Int          @map("total_amount")           // 總金額
+
+  // 關聯帳單（若已轉換）
+  billId String? @unique @map("bill_id")
+  bill   Bill?   @relation(fields: [billId], references: [id], onDelete: SetNull)
+
+  // 匯入資訊
+  importedBy   String       @map("imported_by")
+  importSource ImportSource @map("import_source")
+  rawData      Json?        @map("raw_data") // 原始 QR Code 資料
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([sellerTaxId])
+  @@index([importedBy])
+  @@index([invoiceDate])
+  @@map("imported_invoices")
+}
+
+enum ImportSource {
+  QR_SCAN     // 掃描 QR Code
+  CARRIER_API // 載具 API（未來）
+}
+
+// ============================================
+// OCR 掃描配額 (OcrScanQuota) - 免費用戶限額
+// ============================================
+model OcrScanQuota {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  month     String   // "2026-03" 格式，用於月份重置判斷
+  usedCount Int      @default(0) @map("used_count")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ocr_scan_quotas")
+}
+
+// ============================================
+// 貨幣 (Currency) - 多國貨幣支援
+// ============================================
+enum Currency {
+  TWD // 新台幣
+  USD // 美元
+  JPY // 日圓
+  EUR // 歐元
+  KRW // 韓元
+  CNY // 人民幣
+  HKD // 港幣
+  GBP // 英鎊
+  THB // 泰銖
+  VND // 越南盾
+  SGD // 新加坡幣
+  MYR // 馬來西亞令吉
+  PHP // 菲律賓披索
+  IDR // 印尼盾
+  AUD // 澳幣
+}
+
+// ============================================
+// 匯率快取 (ExchangeRate) - 即時匯率
+// ============================================
+model ExchangeRate {
+  id             String   @id @default(uuid())
+  baseCurrency   Currency @map("base_currency")
+  targetCurrency Currency @map("target_currency")
+  rate           Decimal  @db.Decimal(18, 8)
+  fetchedAt      DateTime @map("fetched_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([baseCurrency, targetCurrency])
+  @@index([baseCurrency])
+  @@index([fetchedAt])
+  @@map("exchange_rates")
+}

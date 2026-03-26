@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Tripledger</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>tripledger</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+
+	<!-- Export Compliance - 不使用非標準加密 -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- URL Schemes -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<!-- Google Sign-In URL Scheme -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>google</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- Google iOS Client ID 的反向 DNS 格式 -->
+				<string>com.googleusercontent.apps.297896850903-o0d95vmns7p061nmugfidb8oco5it2ck</string>
+			</array>
+		</dict>
+		<!-- LINE Login URL Scheme -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>line</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- 格式: line3rdp.{bundle_identifier} -->
+				<string>line3rdp.com.leadinginstr.tripledger</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- LINE SDK 需要查詢 LINE App (iOS 9+) -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>lineauth2</string>
+	</array>
+
+	<!-- Google Sign-In Client ID (iOS) -->
+	<!-- 請在 Google Cloud Console 建立 iOS OAuth Client ID 後填入 -->
+	<key>GIDClientID</key>
+	<string>297896850903-o0d95vmns7p061nmugfidb8oco5it2ck.apps.googleusercontent.com</string>
+
+	<!-- Google AdMob App ID -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-8002912489557897~3357342688</string>
+
+	<!-- App Tracking Transparency 說明文字 (iOS 14+) -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>此應用程式會使用您的資訊來顯示與您相關的廣告</string>
+
+	<!-- Camera Usage Description (收據掃描功能) -->
+	<key>NSCameraUsageDescription</key>
+	<string>需要相機權限來掃描收據，以便快速建立帳單記錄</string>
+
+	<!-- Photo Library Usage Description (從相簿選擇收據圖片) -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>需要存取相簿以選擇收據圖片進行辨識</string>
+</dict>
+</plist>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TripLedger</string>
+
+    <!-- LINE SDK 設定 -->
+    <!-- 請將下方的值替換為你在 LINE Developers Console 取得的 Channel ID -->
+    <string name="line_channel_id">YOUR_LINE_CHANNEL_ID</string>
+</resources>

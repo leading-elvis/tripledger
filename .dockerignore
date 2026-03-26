@@ -1,0 +1,54 @@
+# Dependencies (will be installed in Docker)
+node_modules
+npm-debug.log
+
+# Build outputs
+**/dist
+**/coverage
+
+# Development files
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Test files
+**/test
+**/*.spec.ts
+**/*.test.ts
+
+# Git
+.git
+.gitignore
+
+# Documentation (keep README for reference)
+docs
+*.md
+!README.md
+
+# Flutter/Mobile app (not needed for API build)
+apps/mobile
+
+# Infrastructure (not needed in image)
+infrastructure
+
+# Scripts (not needed in image)
+scripts
+
+# Docker files (don't include in context)
+docker-compose*
+.docker
+
+# Misc
+.DS_Store
+*.log
+Thumbs.db
+
+# Cloud Build config (not needed in image)
+cloudbuild.yaml
