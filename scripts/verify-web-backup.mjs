@@ -36,6 +36,7 @@ async function main() {
   const raw = readFileSync(sourcePath);
   const backup = JSON.parse(raw.toString('utf8').replace(/^\uFEFF/, ''));
   const { trip: original, files } = await inspectBackup(backup);
+  if (backup.schemaVersion === 3) assert.deepEqual(JSON.parse(JSON.stringify(original)), backup.trip, 'Schema 3 validation must preserve every exported financial and history field.');
   assert.ok(existsSync(join(webRoot, 'dist-standalone', 'index.html')), 'Build apps/web/standalone/vite.config.ts before running.');
 
   const outputRoot = join(webRoot, '.test-output');
@@ -54,7 +55,7 @@ async function main() {
     source: { path: sourcePath, sha256: await sha256(raw), schemaVersion: backup.schemaVersion, revision: backup.sourceRevision ?? null },
     destination: { platform: process.platform, runtime: 'Independent Node.js + SQLite + local receipt files', dataDirectory: join(runDir, 'data'), origin },
     tripId: original.id, currency: original.currency,
-    counts: { members: original.members.length, expenses: original.expenses.length, repayments: original.repayments.length, history: original.history.length, receipts: files.length },
+    counts: { members: original.members.length, expenses: original.expenses.length, repayments: original.repayments.length, history: original.history.length, actors: original.team.actors.length, membershipEvents: original.team.events.length, pendingRepayments: original.repayments.filter(r=>r.status==='pending').length, receipts: files.length },
     checks: {},
   };
 
@@ -153,6 +154,13 @@ async function main() {
     const { trip: restored } = await json('import', backup, cookie, 201);
     assert.deepEqual(portableTrip(restored), portableTrip(original), 'Imported financial data, IDs or metadata changed.');
     assert.deepEqual(balances(restored), balances(original));
+    assert.equal(restored.me.isOwner, true);
+    assert.equal(restored.me.role, 'admin');
+    assert.equal(restored.me.actorId, null, 'Importer must not impersonate a historical actor.');
+    assert.ok(restored.teamMembers.every(person => !person.connected), 'Imported actors must not inherit account bindings.');
+    assert.deepEqual(restored.invitations, []);
+    assert.deepEqual(restored.joinRequests, []);
+    report.checks.liveAuthorityReset = true;
     assert.equal(Object.values(balances(restored)).reduce((sum, value) => sum + value, 0), 0);
     report.checks.financialDataAndMemberIdsPreserved = true;
     report.balances = balances(restored);

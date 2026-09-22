@@ -21,7 +21,7 @@ export function evenShares(amount, memberIds) {
 export function balances(trip) {
   const values = Object.fromEntries(trip.members.map(m => [m.id, 0]));
   for (const e of trip.expenses.filter(e => !e.voided)) { values[e.payerId] += e.amount; for (const s of e.shares) values[s.memberId] -= s.amount; }
-  for (const r of trip.repayments.filter(r => !r.voided)) { values[r.fromId] += r.amount; values[r.toId] -= r.amount; }
+  for (const r of trip.repayments.filter(r => !r.voided && (!r.status || r.status==='confirmed'))) { values[r.fromId] += r.amount; values[r.toId] -= r.amount; }
   return values;
 }
 export function suggestions(trip) {
@@ -32,6 +32,14 @@ export function suggestions(trip) {
 }
 function day(value) { ensure(typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10)===value, '日期無效'); return value; }
 function timestamp(value) { ensure(typeof value==='string' && !isNaN(Date.parse(value)), '時間無效'); return value; }
+function actorRef(value,actors) {if(value==null)return null;ensure(actors.has(uuid(value)),'操作人無效');return value;}
+function validateTeam(source,memberIds) {
+  const t=source??{enabled:false,actors:[],events:[]};ensure(typeof t.enabled==='boolean'&&Array.isArray(t.actors)&&t.actors.length<=100&&Array.isArray(t.events)&&t.events.length<=300,'成員歷史資料無效或已達上限');
+  const actors=t.actors.map(a=>{ensure(['admin','editor','viewer'].includes(a.role)&&typeof a.active==='boolean','成員角色無效');ensure(a.participantId==null||memberIds.has(a.participantId),'成員綁定無效');return {id:uuid(a.id),name:label(a.name,80),role:a.role,participantId:a.participantId??null,active:a.active};});
+  const ids=new Set(actors.map(a=>a.id));ensure(ids.size===actors.length,'操作人不可重複');
+  const events=t.events.map(e=>{ensure(['enable','join','change','remove','leave','restore-owner'].includes(e.action)&&ids.has(e.targetId),'成員歷史無效');return {id:uuid(e.id),action:e.action,actorId:actorRef(e.actorId,ids),targetId:e.targetId,at:timestamp(e.at),detail:label(e.detail,180)};});
+  ensure(new Set(events.map(e=>e.id)).size===events.length,'成員歷史識別碼重複');return {enabled:t.enabled,actors,events};
+}
 export function receiptMeta(value) {
   if (!value) return undefined;
   ensure(['image/jpeg','image/png','image/webp'].includes(value.mime), '收據僅接受 JPG、PNG 或 WebP');
@@ -65,10 +73,20 @@ export function validateTrip(source) {
   ensure(Object.hasOwn(CURRENCIES,source.currency), '不支援此幣別');
   ensure(Array.isArray(source.members) && source.members.length>=2 && source.members.length<=LIMITS.members,'每個旅程需要 2–20 位旅伴');
   const members=source.members.map(m=>({id:uuid(m.id),name:label(m.name,40)})), ids=new Set(members.map(m=>m.id));
+  const team=validateTeam(source.team,ids),actorIds=new Set(team.actors.map(a=>a.id));
   ensure(ids.size===members.length && new Set(members.map(m=>m.name)).size===members.length,'旅伴不可重複');
   ensure(Array.isArray(source.expenses) && source.expenses.length<=LIMITS.expenses && Array.isArray(source.repayments) && source.repayments.length<=LIMITS.repayments, '已超過此內測版的旅程紀錄上限');
-  const expenses=source.expenses.map(e=>({id:uuid(e.id),...expenseFields(e,ids),receipt:receiptMeta(e.receipt)}));
-  const repayments=source.repayments.map(r=>{ensure(ids.has(r.fromId)&&ids.has(r.toId)&&r.fromId!==r.toId&&typeof r.voided==='boolean','還款對象或紀錄狀態無效');return {id:uuid(r.id),fromId:r.fromId,toId:r.toId,amount:minor(r.amount),date:day(r.date),voided:r.voided};});
+  const expenses=source.expenses.map(e=>({id:uuid(e.id),...expenseFields(e,ids),receipt:receiptMeta(e.receipt),createdBy:actorRef(e.createdBy,actorIds)}));
+  const repayments=source.repayments.map(r=>{
+    ensure(ids.has(r.fromId)&&ids.has(r.toId)&&r.fromId!==r.toId&&typeof r.voided==='boolean','還款對象或紀錄狀態無效');
+    const status=r.status??'confirmed';ensure(['pending','confirmed','cancelled','rejected'].includes(status),'還款狀態無效');
+    const events=(r.events??[]).map(e=>{ensure(['confirm','cancel','reject','void'].includes(e.action)&&typeof e.proxy==='boolean','還款歷史無效');return {id:uuid(e.id),action:e.action,actorId:actorRef(e.actorId,actorIds),at:timestamp(e.at),proxy:e.proxy};});
+    ensure(events.length<=3&&new Set(events.map(e=>e.id)).size===events.length,'還款歷史無效');
+    let state=r.initialStatus??(r.createdBy?'pending':'confirmed'),voided=false;ensure(['pending','confirmed'].includes(state),'還款初始狀態無效');
+    for(const e of events){ensure(!voided,'作廢後不可再變更還款');if(e.action==='void'){ensure(state==='confirmed','只有已確認還款可作廢');voided=true;}else{ensure(state==='pending','還款狀態不可重複變更');state=e.action==='confirm'?'confirmed':e.action==='cancel'?'cancelled':'rejected';}}
+    ensure(state===status&&(events.length?voided===r.voided:true),'還款歷史與狀態不符');ensure(status==='confirmed'||!r.voided,'待確認或取消還款不可標為作廢');
+    return {id:uuid(r.id),fromId:r.fromId,toId:r.toId,amount:minor(r.amount),date:day(r.date),voided:r.voided,status,initialStatus:r.initialStatus??(r.createdBy?'pending':'confirmed'),createdBy:actorRef(r.createdBy,actorIds),events};
+  });
   const allIds=[...members,...expenses,...repayments,...expenses.filter(e=>e.receipt).map(e=>e.receipt)].map(x=>x.id);
   ensure(new Set(allIds).size===allIds.length,'備份包含重複的資料識別碼');
   ensure(expenses.reduce((s,e)=>s+(e.receipt?.size??0),0)<=LIMITS.receiptTotal,'每個旅程的收據總量上限為 8 MB');
@@ -82,7 +100,7 @@ export function validateTrip(source) {
     const before=changeValue(h.action,h.before,ids),after=changeValue(h.action,h.after,ids);
     if(expenseAction)ensure(!before.voided && after.voided===(h.action==='void-expense'),'歷史狀態無效');
     if(h.action==='void-expense')ensure(JSON.stringify({...before,voided:true})===JSON.stringify(after),'作廢歷史不應修改帳務');
-    return {id:uuid(h.id),action:h.action,targetId,at:timestamp(h.at),before,after};
+    return {id:uuid(h.id),action:h.action,targetId,at:timestamp(h.at),before,after,actorId:actorRef(h.actorId,actorIds)};
   });
   ensure(new Set(history.map(h=>h.id)).size===history.length,'更正歷史識別碼不可重複');
   const latest=new Map();let historicalArchive=false;
@@ -93,26 +111,29 @@ export function validateTrip(source) {
   }
   ensure(historicalArchive===archived,'封存狀態與歷史不符');
   for(const h of latest.values()){const value=h.action.endsWith('expense')?expenseFields(expenses.find(e=>e.id===h.targetId),ids):h.action==='rename-trip'?label(source.name,60):archived;ensure(JSON.stringify(h.after)===JSON.stringify(value),'歷史與目前帳目不符');}
-  return assertDocumentSize({id:uuid(source.id),name:label(source.name,60),currency:source.currency,createdAt:timestamp(source.createdAt),updatedAt:timestamp(source.updatedAt),archived,members,expenses,repayments,history});
+  return assertDocumentSize({id:uuid(source.id),name:label(source.name,60),currency:source.currency,createdAt:timestamp(source.createdAt),updatedAt:timestamp(source.updatedAt),archived,members,expenses,repayments,history,team});
 }
 export function newTrip(input) {
   const now=new Date().toISOString();
   ensure(Array.isArray(input.members),'請輸入旅伴');
   return validateTrip({id:uuid(input.id),name:input.name,currency:input.currency,createdAt:now,updatedAt:now,members:input.members.map(name=>({id:crypto.randomUUID(),name})),expenses:[],repayments:[]});
 }
-export function mutateTrip(trip, action, input, receipt) {
+export function mutateTrip(trip, action, input, receipt, actorId=null) {
   if(isChangeRetry(trip,action,input))return trip;
   const next=validateTrip(trip); const id=uuid(input.id);
   ensure(!next.archived||action==='set-archived','旅程已封存，請先解除封存再修改',409);
   if(action==='expense') {
     if(next.expenses.some(e=>e.id===id)) return trip;
     ensure(['equal','exact'].includes(input.mode),'不支援的分攤方式');
-    next.expenses.push({id,title:input.title,amount:minor(input.amount),payerId:input.payerId,shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares,date:input.date,category:input.category,voided:false,splitMode:input.mode,receipt});
+    next.expenses.push({id,title:input.title,amount:minor(input.amount),payerId:input.payerId,shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares,date:input.date,category:input.category,voided:false,splitMode:input.mode,receipt,createdBy:actorId});
   } else if(action==='repayment') {
     if(next.repayments.some(r=>r.id===id)) return trip;
     const b=balances(trip); minor(input.amount);
     ensure(input.fromId!==input.toId && b[input.fromId]<0 && b[input.toId]>0 && input.amount<=Math.min(-b[input.fromId],b[input.toId]),'還款金額不可超過目前待結清金額');
-    next.repayments.push({id,fromId:input.fromId,toId:input.toId,amount:input.amount,date:input.date,voided:false});
+    const status=next.team.enabled?'pending':'confirmed';
+    const pending=next.repayments.filter(r=>r.status==='pending');
+    ensure(input.amount<=Math.min(-b[input.fromId]-pending.filter(r=>r.fromId===input.fromId).reduce((n,r)=>n+r.amount,0),b[input.toId]-pending.filter(r=>r.toId===input.toId).reduce((n,r)=>n+r.amount,0)),'已有待確認還款，請先完成或取消');
+    next.repayments.push({id,fromId:input.fromId,toId:input.toId,amount:input.amount,date:input.date,voided:false,status,initialStatus:status,createdBy:actorId,events:[]});
   } else if(['edit-expense','void-expense','rename-trip','set-archived'].includes(action)) {
     const ids=new Set(next.members.map(m=>m.id));let before;
     const after=desiredChange(next,action,input);
@@ -122,9 +143,14 @@ export function mutateTrip(trip, action, input, receipt) {
       ensure(!record.voided,'已作廢支出無法更正');before=expenseFields(record,ids);Object.assign(record,after);
     }else{ensure(id===next.id,'旅程識別碼不符');before=action==='rename-trip'?next.name:next.archived;if(action==='rename-trip')next.name=after;else next.archived=after;}
     if(JSON.stringify(before)===JSON.stringify(after))return trip;
-    next.history.push({id:uuid(input.operationId??(action==='void-expense'?crypto.randomUUID():undefined)),action,targetId:id,at:new Date().toISOString(),before,after});
-  } else if(action==='void-repayment') {
-    const record=next.repayments.find(e=>e.id===id);ensure(record,'找不到這筆紀錄',404);record.voided=true;
+    next.history.push({id:uuid(input.operationId??(action==='void-expense'?crypto.randomUUID():undefined)),action,targetId:id,at:new Date().toISOString(),before,after,actorId});
+  } else if(['confirm-repayment','cancel-repayment','reject-repayment','void-repayment'].includes(action)) {
+    const record=next.repayments.find(e=>e.id===id);ensure(record,'找不到這筆紀錄',404);
+    const change=action.split('-')[0];if(change==='void'&&record.voided)return trip;
+    if(change==='void'){ensure(record.status==='confirmed','只有已確認還款可作廢');record.voided=true;}
+    // Confirmation records actual money received. Later expense corrections may legitimately reverse debt.
+    else{ensure(record.status==='pending','這筆還款已處理，請重新整理',409);record.status=change==='confirm'?'confirmed':change==='cancel'?'cancelled':'rejected';}
+    record.events.push({id:uuid(input.operationId??crypto.randomUUID()),action:change,actorId,at:new Date().toISOString(),proxy:!!input.proxy});
   } else throw new AppError('不支援的操作',404);
   next.updatedAt=new Date().toISOString();return validateTrip(next);
 }

@@ -11,7 +11,7 @@ export function ExpenseForm({trip,expense,busy,submit}:{trip:Trip;expense?:Expen
   const [id]=useState(()=>expense?.id??crypto.randomUUID());
   const [operationId,setOperationId]=useState(()=>crypto.randomUUID());
   const [revision,setRevision]=useState(trip.revision);
-  const [payer,setPayer]=useState(expense?.payerId??trip.members[0].id);
+  const [payer,setPayer]=useState(expense?.payerId??trip.me.participantId??trip.members[0].id);
   const [category,setCategory]=useState(expense?.category??'餐飲');
   const [mode,setMode]=useState<string>(expense?(expense.splitMode??'exact'):'equal');
   const [selected,setSelected]=useState(expense?.shares.map(s=>s.memberId)??trip.members.map(m=>m.id));
@@ -33,6 +33,7 @@ export function ExpenseForm({trip,expense,busy,submit}:{trip:Trip;expense?:Expen
   try{if(mode==='equal')preview=evenShares(parseMoney(amount,trip.currency),selected);}catch{}
   const stale=revision!==trip.revision;
   const latest=expense?trip.expenses.find(e=>e.id===id):undefined;
+  const allowed=trip.me.role!=='viewer'&&(!expense||trip.me.role==='admin'||expense.createdBy===trip.me.actorId);
   const save=async(e:FormEvent<HTMLFormElement>)=>{
     e.preventDefault();setError('');const form=new FormData(e.currentTarget);
     try{
@@ -44,6 +45,7 @@ export function ExpenseForm({trip,expense,busy,submit}:{trip:Trip;expense?:Expen
     }catch(e){setError(e instanceof Error?e.message:'請確認資料');}
   };
   return <form onSubmit={e=>void save(e)}><fieldset className="form-stack" disabled={busy}>
+    {!allowed&&<p className="notice" role="alert">目前沒有儲存權限，你的輸入仍保留。請向管理者確認權限。</p>}
     {stale&&<div className="notice" role="alert"><p>帳本已有較新的資料，你的輸入仍保留。確認目前帳目後，才能重新送出。</p>{latest&&<div><p>目前儲存：{latest.title} · {formatMoney(latest.amount,trip.currency)}</p><p>{latest.date} · {latest.category} · {trip.members.find(m=>m.id===latest.payerId)?.name} 先付 · {latest.voided?'已作廢':'有效支出'}</p><p>{latest.shares.map(s=>`${trip.members.find(m=>m.id===s.memberId)?.name} ${formatMoney(s.amount,trip.currency)}`).join('、')}</p></div>}<button type="button" className="secondary" disabled={trip.archived||latest?.voided} onClick={()=>{setRevision(trip.revision);setOperationId(crypto.randomUUID());}}>已核對，保留輸入並使用最新版本</button></div>}
     {(trip.archived||latest?.voided)&&<p className="notice" role="alert">{trip.archived?'旅程已封存':'支出已作廢'}，目前無法儲存。你的輸入仍保留在此表單。</p>}
     {expense&&<p className="small muted">更正前後內容會保留。原收據與已記錄的還款維持不變，餘額會依新內容重算。</p>}
@@ -54,6 +56,6 @@ export function ExpenseForm({trip,expense,busy,submit}:{trip:Trip;expense?:Expen
     <fieldset className="split-members"><legend>誰一起分攤</legend>{trip.members.map(m=><div className="split-row" key={m.id}><label><Checkbox checked={selected.includes(m.id)} onCheckedChange={checked=>setSelected(old=>checked?trip.members.filter(x=>x.id===m.id||old.includes(x.id)).map(x=>x.id):old.filter(id=>id!==m.id))}/>{m.name}</label>{selected.includes(m.id)&&(mode==='exact'?<input aria-label={`${m.name} 分攤金額`} inputMode="decimal" value={exact[m.id]??''} placeholder="0" onChange={e=>setExact(old=>({...old,[m.id]:e.target.value}))}/>:<span>{formatMoney(preview.find(s=>s.memberId===m.id)?.amount??0,trip.currency)}</span>)}</div>)}</fieldset>
     {!expense&&<div className="form-stack"><div className="form-row"><label className="field">收據圖片（選填）<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{const file=e.target.files?.[0];e.target.value="";void choose(file);}}/></label><label className="field">拍照新增收據<input type="file" accept="image/*" capture="environment" onChange={e=>{const file=e.target.files?.[0];e.target.value="";void choose(file);}}/></label></div><p className="small muted">JPG、PNG 或 WebP。超過 1 MB 會嘗試縮小，請確認預覽中的文字清晰。</p>{processing&&<p role="status">正在準備收據…</p>}{receiptError&&<p className="error" role="alert">{receiptError}</p>}{previewUrl&&<figure className="receipt-preview"><img src={previewUrl} alt="待上傳收據預覽"/><figcaption>{file?.name} · {Math.ceil((file?.size??0)/1024)} KB</figcaption></figure>}{(file||receiptError)&&<button type="button" className="secondary" onClick={()=>{selection.current++;setFile(null);setReceiptError('');setProcessing(false);}}>移除所選收據</button>}</div>}
     {error&&<p className="error" role="alert">{error}</p>}
-    <button className="primary" disabled={busy||processing||!!receiptError||stale||trip.archived||latest?.voided}>{busy?'正在儲存…':expense?'儲存更正':'儲存支出'}</button>
+    <button className="primary" disabled={!allowed||busy||processing||!!receiptError||stale||trip.archived||latest?.voided}>{busy?'正在儲存…':expense?'儲存更正':'儲存支出'}</button>
   </fieldset></form>;
 }

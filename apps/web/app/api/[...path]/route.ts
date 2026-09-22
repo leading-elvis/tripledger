@@ -10,6 +10,7 @@ async function route(request: Request) {
   const db = bindings.DB;
   return handleApi(request, {
     subject: user ? `${hosting.project_id}:${user.userId}` : null,
+    profile: user ? {name:user.displayName,email:user.email} : {},
     repo: repository({
       get: (sql: string, values: unknown[]) => db.prepare(sql).bind(...values).first(),
       all: async (sql: string, values: unknown[]) => (await db.prepare(sql).bind(...values).all()).results,

@@ -9,4 +9,6 @@ export const ledgers = sqliteTable("ledgers", {
   owner: text("owner").notNull().references(() => accounts.id),
   revision: integer("revision").notNull().default(1),
   document: text("document").notNull(),
+  // Live account bindings and invitation secrets never enter portable backups.
+  access: text("access").notNull().default('{}'),
 }, (table) => [index("idx_ledgers_owner").on(table.owner)]);
