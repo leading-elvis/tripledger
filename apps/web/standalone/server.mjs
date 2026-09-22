@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import { handleApi } from '../lib/api.mjs';
 import { openStorage } from './storage.mjs';
 import { LIMITS } from '../lib/domain.mjs';
+import { parseRoute } from '../lib/navigation.mjs';
 
 const password=process.env.TRIPLEDGER_PASSWORD;
 if(!password || password.length<12)throw new Error('Set TRIPLEDGER_PASSWORD to at least 12 characters before starting.');
@@ -46,7 +47,9 @@ const server=createServer(async(req,res)=>{
     if(!['GET','HEAD'].includes(req.method)){res.writeHead(405).end();return;}
     const path=resolve(assets,decodeURIComponent(url.pathname).replace(/^\//,''));
     if(!path.startsWith(assets+sep)&&path!==assets){res.writeHead(404).end();return;}
-    const file=existsSync(path)&&statSync(path).isFile()?path:resolve(assets,'index.html');res.writeHead(200,{'Content-Type':types[extname(file)]??'application/octet-stream'});res.end(req.method==='HEAD'?undefined:readFileSync(file));
+    const isAsset=existsSync(path)&&statSync(path).isFile();
+    const file=isAsset?path:resolve(assets,'index.html'),status=isAsset||parseRoute(url.pathname).kind!=='missing'?200:404;
+    res.writeHead(status,{'Content-Type':types[extname(file)]??'application/octet-stream'});res.end(req.method==='HEAD'?undefined:readFileSync(file));
   }catch(error){console.error('Request failed:',error.message);if(!res.headersSent)res.writeHead(400,{'Content-Type':'application/json'});res.end('{"error":"無法處理此請求"}');}
 });
 server.listen(port,host,()=>console.log(`TripLedger independent server: ${origin}`));

@@ -1,0 +1,1 @@
+export default function NotFound(){return <main className="workspace"><section className="panel"><h1>找不到這個頁面</h1><p className="muted">請檢查網址，或回旅程首頁選擇帳本。</p><a className="primary" href="/">回旅程首頁</a></section></main>;}
