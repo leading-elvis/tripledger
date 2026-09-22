@@ -6,9 +6,9 @@
 
 已建立 `apps/web` 首版，具備受保護的單旅程完整 JSON 備份與匯入，包含實際收據 bytes／SHA-256、帳單分攤與已記錄還款。業務核心及前端共用，Sites 用 D1／R2／平台登入；獨立 Node 24 入口用 SQLite／同機檔案／單一管理者密碼。
 
-已實測 **本機 Sites D1＋R2 → Windows Node＋SQLite＋檔案**，還原後旅伴、支出與還款 ID、餘額及收據 checksum 一致，重啟後仍持久化，重複匯入拒絕覆蓋。收據儲存 ID 於匯入時重新配置以避免覆寫。未驗證實體 NAS、公開多人帳號遷移或雲端已部署版本的還原。
+已實測 **正式私人 Sites D1＋R2 → Windows Node＋SQLite＋檔案**，還原後旅伴、支出與還款 ID、分攤、餘額及收據 bytes／checksum 一致，重啟後仍持久化，重複匯入拒絕覆蓋。收據儲存 ID 於匯入時重新配置以避免覆寫。本次是含 1 筆支出、1 筆部分還款、1 張合成收據的小型帳本，未驗證實體 NAS、公開多人帳號遷移或大量資料。
 
-已建立私人 Sites 專案，但官方發布工具檔案於工作階段中消失，故尚未完成發布。後續查核確認專案仍僅 owner 可存取、版本數為 0，未進行雲端還原測試。新版已保存到 GitHub 的 `refactor/web-sites-prototype` 分支，並從遠端重新 clone 驗證安裝、7 項測試、型別檢查與兩種建置。詳見 [首版操作與驗證說明](../apps/web/SELF_HOSTING.md)。下列「建議」包含後续公開版本需求，不代表首版全數完成。
+私人網站已成功發布：[TripLedger 旅伴帳本](https://tripledger-elvis-lab.workspace-309457.chatgpt.site)，維持僅擁有者存取。新版已保存到 GitHub 的 `refactor/web-sites-prototype` 分支及[草稿 PR #1](https://github.com/leading-elvis/tripledger/pull/1)，並從遠端重新 clone 功能基線驗證安裝、7 項測試、型別檢查與兩種建置。內嵌瀏覽器未完成直接檔案下載，因此提供「檢視完整備份」入口；本次由此保存實際雲端 JSON，再還原到 Windows。精確版本、匯出方式及驗收界線見[部署與搬遷驗收](DEPLOYMENT_VALIDATION.md)，操作方式見[首版說明](../apps/web/SELF_HOSTING.md)。下列「建議」包含後續公開版本需求，不代表首版全數完成。
 
 ## 結論
 
