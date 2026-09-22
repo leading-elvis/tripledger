@@ -62,7 +62,7 @@ docker build -f standalone/Dockerfile -t tripledger-web .
 
 ## 從 Sites 搬出
 
-1. 在 Sites 的每個旅程切到「備份」，下載「此旅程備份」。原始碼備份與帳务備份是兩件事。
+1. 在 Sites 的每個旅程切到「備份」，下載「此旅程備份」。若內嵌瀏覽器無法下載，可用「檢視完整備份」取得全部 JSON，另存為 UTF-8 `.json` 檔。原始碼備份與帳務備份是兩件事。
 2. 啟動獨立服務並登入，在「備份」匯入每個 JSON。既有旅程會拒絕覆蓋。
 3. 核對支出、還款、各旅伴餘額與收據；匯入時已核對檔案 checksum 與關聯完整性。
 4. 真正切換前停止舊站寫入，重新匯出最終資料，還原到空白目的地，通過核對後再切換使用網址。
@@ -79,7 +79,9 @@ node node_modules/vite/bin/vite.js build --config standalone/vite.config.ts
 
 已通過：金額精度、均分尾差、指定分攤驗證、還款方向／作廢、未登入及跨帳本隔離、版本衝突、重送防重、錯誤備份拒絕、SQLite 重啟、收據 SHA-256 和還原。
 
-`tests/migration-rehearsal.mjs` 在本機 Sites 開發服務（5173）建立 D1/R2 測試帳目，匯出後啟動 Windows 獨立 Node/SQLite 服務（4180），透過 HTTP 匯入並重啟驗證；不連線到公開／雲端站，也不依賴 Sites headers 來登入目的地。執行結果保存於已忽略的 `.test-output/rehearsal-*/report.json`。這項測試已通過，**雲端已部署版本的匯出／還原尚未實測**。
+`tests/migration-rehearsal.mjs` 在本機 Sites 開發服務（5173）建立 D1/R2 測試帳目，匯出後啟動 Windows 獨立 Node/SQLite 服務（4180），透過 HTTP 匯入並重啟驗證；不連線到公開／雲端站，也不依賴 Sites headers 來登入目的地。執行結果保存於已忽略的 `.test-output/rehearsal-*/report.json`。這項本機測試已通過。
+
+已另以私人雲端 Sites 的真實合成帳目及收據完成 Windows 還原。GitHub 根目錄的 `scripts/verify-web-backup.mjs` 接受已匯出的完整 JSON，使用全新 SQLite／檔案目錄驗證所有帳務、收據、重複匯入拒絕及重啟持久化；只連 localhost，不自行取得雲端登入權杖。使用 Node 24 執行 `node scripts/verify-web-backup.mjs <備份檔完整路徑>`。實際來源、匯出方式與限制見下方部署驗收紀錄。
 
 已透過瀏覽器驗證建立旅程、均分記帳、部分還款，並檢視手機 390px 畫面；桌面 1280px 的 DOM 尺寸檢查確認三欄排列且沒有橫向溢位。桌面完整截圖在目前瀏覽器工具中出現與 DOM 尺寸不符的畫面，故不把它列為可靠的桌面視覺驗收。WebMCP 的讀取餘額及開啟記帳表單工具已驗證正常與拒絕無效輸入的路徑。
 
