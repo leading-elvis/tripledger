@@ -85,10 +85,10 @@ node node_modules/vite/bin/vite.js build --config standalone/vite.config.ts
 
 ## 發布狀態
 
-已建立私人 Sites 專案，ID 保存在 `.openai/hosting.json`。2026-09-22 再次查核：雲端專案仍為 active、僅 owner 可存取、版本數為 0，沒有 live URL。**尚未發布**：本機找不到官方 Sites skill bundle 與 `site-workflow.mjs`；連接器可讀取專案，不代表本機發布工具完整。部署前須恢復官方工具，完成同一來源的 source push／打包／儲存版本流程。
+私人 Sites 專案 ID 保存在 `.openai/hosting.json`。重用既有 project_id，透過官方 Sites source push／打包／儲存版本流程發布，不要重建另一個 Site。
 
-恢復 Sites 外掛後，重用 manifest 內的 project_id，不要再建立新 Site。完成發布與雲端資料驗證後再更新此狀態。
+每次發布及雲端還原的實際結果記錄於 [部署與搬遷驗收紀錄](https://github.com/leading-elvis/tripledger/blob/refactor/web-sites-prototype/docs/DEPLOYMENT_VALIDATION.md)。Sites 的部署提交是 `apps/web` 專用儲存庫提交；GitHub 提交則包含整個 monorepo，兩者的 SHA 不相同，以驗收紀錄對應來源與版本。
 
 新版原始碼已推送至 [GitHub 獨立分支 refactor/web-sites-prototype](https://github.com/leading-elvis/tripledger/tree/refactor/web-sites-prototype)。舊版 main 保持不變。已從 GitHub 重新 clone 提交 `035ff945d793ae05efdba4ed00cb176271595a4c`，重新安裝鎖定依賴後通過 7 項測試、TypeScript 檢查、Sites Worker 建置及獨立網頁建置。提交包含必要的 `build/sites-vite-plugin.ts` 與授權檔；資料、收據、測試輸出、秘密設定及建置快取不納入版本。
 
-恢復入口與限制：官方 [Plugins 文件](https://learn.chatgpt.com/docs/plugins#install-and-use-a-plugin) 說明本機 bundle 與既有 MCP 連線可分別存在，安裝後技能在新對話／session 載入。本次 Plugin Management 搜尋未提供 Sites 安裝項目，本機也無可列出的 marketplace；仍需透過桌面 App 的 Plugins／Sites 入口確認能力是否可恢復，不能自行拼湊同名工具或宣稱已上線。
+若本機 Sites 工具缺失，先透過官方介面恢復，再使用相同專案接續。[Plugins 文件](https://learn.chatgpt.com/docs/plugins#install-and-use-a-plugin) 說明本機 bundle 與既有 MCP 連線可分別存在；連接器可讀取專案，不代表本機發布工具完整。
