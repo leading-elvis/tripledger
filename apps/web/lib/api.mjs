@@ -1,4 +1,4 @@
-import { AppError, ensure, uuid, newTrip, mutateTrip, LIMITS, receiptMeta } from './domain.mjs';
+import { AppError, ensure, uuid, newTrip, mutateTrip, LIMITS, receiptMeta, validateTrip, isChangeRetry } from './domain.mjs';
 import { createBackup, inspectBackup, decode, sha256, checkFile } from './backup.mjs';
 
 function json(value,status=200) {return Response.json(value,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});}
@@ -15,7 +15,7 @@ export async function handleApi(request,{repo,objects,subject,mode='sites'}) {
     const url=new URL(request.url),parts=url.pathname.replace(/^\/api\/?/,'').split('/').filter(Boolean), method=request.method;
     if(method!=='GET') {const origin=request.headers.get('origin');ensure(!origin || origin===url.origin,'不允許跨網站操作',403);}
     const owner=await repo.account(subject);
-    if(parts[0]==='state' && method==='GET')return json({trips:await repo.list(owner),mode});
+    if(parts[0]==='state' && method==='GET')return json({trips:(await repo.list(owner)).map(t=>({...validateTrip(t),revision:t.revision})),mode});
     if(parts[0]==='trips' && parts.length===1 && method==='POST') {
       const input=await body(request),trip=newTrip(input);const existing=await repo.get(trip.id,owner);if(existing)return json({trip:existing});
       const changed=await repo.insert(trip,owner);ensure(changed,'旅程已存在或已達 50 個旅程上限',409);return json({trip:{...trip,revision:1}},201);
@@ -42,7 +42,7 @@ export async function handleApi(request,{repo,objects,subject,mode='sites'}) {
       }
       if(parts.length===3 && method==='POST') {
         const input=await body(request),action=parts[2];uuid(input.id);
-        if(action==='expense' && trip.expenses.some(e=>e.id===input.id) || action==='repayment' && trip.repayments.some(r=>r.id===input.id))return json({trip});
+        if(action==='expense' && trip.expenses.some(e=>e.id===input.id) || action==='repayment' && trip.repayments.some(r=>r.id===input.id) || isChangeRetry(trip,action,input))return json({trip});
         ensure(input.revision===trip.revision,'帳目已更新，請重新整理後再送出',409);
         let meta,key;let cleanupSafe=true;
         try {
@@ -50,6 +50,7 @@ export async function handleApi(request,{repo,objects,subject,mode='sites'}) {
             const bytes=decode(input.file.data);meta=receiptMeta({id:crypto.randomUUID(),mime:input.file.mime,size:bytes.length,sha256:await sha256(bytes)});await checkFile(meta,bytes);key=`${trip.id}/${meta.id}`;
           }
           const updated=mutateTrip(trip,action,input,meta);
+          if(updated===trip)return json({trip});
           if(meta)await objects.put(key,decode(input.file.data),meta.mime);
           cleanupSafe=false;
           const changed=await repo.update(updated,owner,trip.revision);if(!changed)cleanupSafe=true;

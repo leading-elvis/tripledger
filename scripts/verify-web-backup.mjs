@@ -54,7 +54,7 @@ async function main() {
     source: { path: sourcePath, sha256: await sha256(raw), schemaVersion: backup.schemaVersion, revision: backup.sourceRevision ?? null },
     destination: { platform: process.platform, runtime: 'Independent Node.js + SQLite + local receipt files', dataDirectory: join(runDir, 'data'), origin },
     tripId: original.id, currency: original.currency,
-    counts: { members: original.members.length, expenses: original.expenses.length, repayments: original.repayments.length, receipts: files.length },
+    counts: { members: original.members.length, expenses: original.expenses.length, repayments: original.repayments.length, history: original.history.length, receipts: files.length },
     checks: {},
   };
 
