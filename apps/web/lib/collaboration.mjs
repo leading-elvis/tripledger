@@ -94,7 +94,7 @@ export async function requestJoin(repo,account,profile,input) {
 }
 export function authorize(trip,account,action,input) {
   const me=memberOf(trip,account),admin=me.role==='admin';ensure(me.role!=='viewer','你只有檢視權限',403);
-  if(['rename-trip','set-archived'].includes(action))ensure(admin,'只有管理者可以整理旅程',403);
+  if(['rename-trip','rename-member','set-archived'].includes(action))ensure(admin,'只有管理者可以整理旅程',403);
   if(['edit-expense','void-expense'].includes(action)){const e=trip.expenses.find(e=>e.id===input.id);ensure(e,'找不到支出',404);ensure(admin||(e.createdBy&&e.createdBy===me.actorId),'只能更正或作廢自己建立的支出',403);}
   if(action==='repayment')ensure(admin||(me.participantId&&input.fromId===me.participantId),'只能申報自己對應旅伴的還款',403);
   if(action.endsWith('-repayment')){

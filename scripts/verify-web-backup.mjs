@@ -189,7 +189,7 @@ async function main() {
     report.checks.restartPersistenceVerified = true;
     stage = 'restored full backup';
     const rawReexported=await json(`trips/${original.id}/backup`,undefined,cookie);
-    assert.equal(rawReexported.schemaVersion,4);
+    assert.equal(rawReexported.schemaVersion,5);
     const reexported = await inspectBackup(rawReexported);
     assert.deepEqual(JSON.parse(JSON.stringify(reexported.trip)),rawReexported.trip);
     assert.deepEqual(portableTrip(reexported.trip), portableTrip(original));

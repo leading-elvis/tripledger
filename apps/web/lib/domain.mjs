@@ -71,6 +71,7 @@ function expenseFields(e, ids) {
 function changeValue(action,value,ids) {
   if(action==='edit-expense'||action==='void-expense')return expenseFields(value,ids);
   if(action==='rename-trip')return label(value,60);
+  if(action==='rename-member')return label(value,40);
   if(action==='set-archived'){ensure(typeof value==='boolean','封存狀態無效');return value;}
   ensure(false,'歷史操作無效');
 }
@@ -105,9 +106,9 @@ export function validateTrip(source) {
   const rawHistory=source.history??[];ensure(Array.isArray(rawHistory)&&rawHistory.length<=LIMITS.history,'更正與旅程歷史已達 300 筆上限，請先備份並建立新旅程');
   ensure(!archived||rawHistory.length<LIMITS.history,'封存前須保留解除封存的歷史容量');
   const history=rawHistory.map(h=>{
-    ensure(h&&['edit-expense','void-expense','rename-trip','set-archived'].includes(h.action),'歷史操作無效');
+    ensure(h&&['edit-expense','void-expense','rename-trip','rename-member','set-archived'].includes(h.action),'歷史操作無效');
     const targetId=uuid(h.targetId),expenseAction=h.action.endsWith('expense');
-    ensure(expenseAction?expenses.some(e=>e.id===targetId):targetId===source.id,'歷史對象無效');
+    ensure(expenseAction?expenses.some(e=>e.id===targetId):h.action==='rename-member'?ids.has(targetId):targetId===source.id,'歷史對象無效');
     const before=changeValue(h.action,h.before,ids),after=changeValue(h.action,h.after,ids);
     if(expenseAction)ensure(!before.voided && after.voided===(h.action==='void-expense'),'歷史狀態無效');
     if(h.action==='void-expense')ensure(JSON.stringify({...before,voided:true})===JSON.stringify(after),'作廢歷史不應修改帳務');
@@ -118,10 +119,10 @@ export function validateTrip(source) {
   for(const h of history){
     ensure(!historicalArchive||h.action==='set-archived','封存期間不應有帳務更正');
     if(h.action==='set-archived'){ensure(h.before===historicalArchive,'封存歷史不連續');historicalArchive=h.after;}
-    const key=h.action.endsWith('expense')?h.targetId:h.action;const previous=latest.get(key);if(previous)ensure(JSON.stringify(previous.after)===JSON.stringify(h.before),'更正歷史不連續');latest.set(key,h);
+    const key=h.action.endsWith('expense')?`expense:${h.targetId}`:h.action==='rename-member'?`member:${h.targetId}`:h.action;const previous=latest.get(key);if(previous)ensure(JSON.stringify(previous.after)===JSON.stringify(h.before),'更正歷史不連續');latest.set(key,h);
   }
   ensure(historicalArchive===archived,'封存狀態與歷史不符');
-  for(const h of latest.values()){const value=h.action.endsWith('expense')?expenseFields(expenses.find(e=>e.id===h.targetId),ids):h.action==='rename-trip'?label(source.name,60):archived;ensure(JSON.stringify(h.after)===JSON.stringify(value),'歷史與目前帳目不符');}
+  for(const h of latest.values()){const value=h.action.endsWith('expense')?expenseFields(expenses.find(e=>e.id===h.targetId),ids):h.action==='rename-member'?members.find(m=>m.id===h.targetId).name:h.action==='rename-trip'?label(source.name,60):archived;ensure(JSON.stringify(h.after)===JSON.stringify(value),'歷史與目前帳目不符');}
   return assertDocumentSize({id:uuid(source.id),name:label(source.name,60),currency:source.currency,createdAt:timestamp(source.createdAt),updatedAt:timestamp(source.updatedAt),archived,members,expenses,repayments,history,team});
 }
 export function newTrip(input) {
@@ -145,13 +146,17 @@ export function mutateTrip(trip, action, input, receipt, actorId=null) {
     const pending=next.repayments.filter(r=>r.status==='pending');
     ensure(input.amount<=Math.min(-b[input.fromId]-pending.filter(r=>r.fromId===input.fromId).reduce((n,r)=>n+r.amount,0),b[input.toId]-pending.filter(r=>r.toId===input.toId).reduce((n,r)=>n+r.amount,0)),'已有待確認還款，請先完成或取消');
     next.repayments.push({id,fromId:input.fromId,toId:input.toId,amount:input.amount,date:input.date,voided:false,status,initialStatus:status,createdBy:actorId,events:[]});
-  } else if(['edit-expense','void-expense','rename-trip','set-archived'].includes(action)) {
+  } else if(['edit-expense','void-expense','rename-trip','rename-member','set-archived'].includes(action)) {
     const ids=new Set(next.members.map(m=>m.id));let before;
     const after=desiredChange(next,action,input);
     if(action.endsWith('expense')){
       const record=next.expenses.find(e=>e.id===id);ensure(record,'找不到這筆紀錄',404);
       if(action==='void-expense'&&record.voided)return trip;
       ensure(!record.voided,'已作廢支出無法更正');before=expenseFields(record,ids);Object.assign(record,after);
+    }else if(action==='rename-member'){
+      const member=next.members.find(m=>m.id===id);ensure(member,'找不到這位旅伴',404);
+      ensure(!next.members.some(m=>m.id!==id&&m.name===after),'旅伴名稱不可重複');
+      before=member.name;member.name=after;
     }else{ensure(id===next.id,'旅程識別碼不符');before=action==='rename-trip'?next.name:next.archived;if(action==='rename-trip')next.name=after;else next.archived=after;}
     if(JSON.stringify(before)===JSON.stringify(after))return trip;
     next.history.push({id:uuid(input.operationId??(action==='void-expense'?crypto.randomUUID():undefined)),action,targetId:id,at:new Date().toISOString(),before,after,actorId});
@@ -172,7 +177,7 @@ function desiredChange(trip,action,input) {
     return expenseFields({...input,splitMode:input.mode,voided:false,shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares},ids);
   }
   if(action==='void-expense'){const e=trip.expenses.find(e=>e.id===input.id);ensure(e,'找不到這筆紀錄',404);return expenseFields({...e,voided:true},ids);}
-  return changeValue(action,action==='rename-trip'?input.name:input.archived,ids);
+  return changeValue(action,action==='rename-trip'||action==='rename-member'?input.name:input.archived,ids);
 }
 export function isChangeRetry(trip,action,input) {
   if(!input.operationId)return false;
