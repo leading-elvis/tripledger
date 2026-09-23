@@ -23,7 +23,7 @@ test('renaming an existing companion keeps every financial reference and restore
   for(const bad of ['', '  ', a.name, 'x'.repeat(41)])assert.throws(()=>mutateTrip(trip,'rename-member',{id:b.id,name:bad,operationId:crypto.randomUUID()}));
   assert.throws(()=>mutateTrip(trip,'rename-member',{id:crypto.randomUUID(),name:'不存在',operationId:crypto.randomUUID()}));
   const invalid=structuredClone(trip);invalid.history[0].after='被篡改';assert.throws(()=>validateTrip(invalid));
-  const backup=await createBackup({...trip,revision:4},{get:()=>null});assert.equal(backup.schemaVersion,5);
+  const backup=await createBackup({...trip,revision:4},{get:()=>null});assert.equal(backup.schemaVersion,6);
   assert.deepEqual((await inspectBackup(backup)).trip,trip);
   await assert.rejects(inspectBackup({...backup,schemaVersion:4}));
   const archived=mutateTrip(trip,'set-archived',{id:trip.id,archived:true,operationId:crypto.randomUUID()});

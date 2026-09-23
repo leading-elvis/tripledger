@@ -38,6 +38,7 @@ async function main() {
   const { trip: original, files } = await inspectBackup(backup);
   if (backup.schemaVersion >= 3) {
     const expected=structuredClone(backup.trip);
+    if(backup.schemaVersion<6)expected.members=expected.members.map(member=>({...member,active:true}));
     if(backup.schemaVersion===3)for(const fields of [...expected.expenses,...expected.history.filter(h=>['edit-expense','void-expense'].includes(h.action)).flatMap(h=>[h.before,h.after])]){
       if(fields.payments===undefined){fields.payments=[{memberId:fields.payerId,amount:fields.amount}];delete fields.payerId;}
     }
@@ -189,7 +190,7 @@ async function main() {
     report.checks.restartPersistenceVerified = true;
     stage = 'restored full backup';
     const rawReexported=await json(`trips/${original.id}/backup`,undefined,cookie);
-    assert.equal(rawReexported.schemaVersion,5);
+    assert.equal(rawReexported.schemaVersion,6);
     const reexported = await inspectBackup(rawReexported);
     assert.deepEqual(JSON.parse(JSON.stringify(reexported.trip)),rawReexported.trip);
     assert.deepEqual(portableTrip(reexported.trip), portableTrip(original));

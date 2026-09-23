@@ -1,7 +1,7 @@
 // Pure money/domain code shared by Workers, the browser and independent Node hosting.
 export const CURRENCIES = { TWD: 2, USD: 2, JPY: 0, EUR: 2, HKD: 2 };
 // Preserve room to upgrade legacy payer fields in expenses and historical snapshots.
-export const LIMITS = { members: 20, expenses: 300, repayments: 200, history: 300, documentBytes: 1114112, receiptBytes: 1048576, receiptTotal: 8388608, bodyBytes: 14680064 };
+export const LIMITS = { members: 20, memberRecords: 100, expenses: 300, repayments: 200, history: 300, documentBytes: 1114112, receiptBytes: 1048576, receiptTotal: 8388608, bodyBytes: 14680064 };
 export class AppError extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 export function ensure(condition, message, status = 400) { if (!condition) throw new AppError(message, status); }
 export function uuid(value) { ensure(typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value), '資料識別碼無效'); return value; }
@@ -72,8 +72,13 @@ function changeValue(action,value,ids) {
   if(action==='edit-expense'||action==='void-expense')return expenseFields(value,ids);
   if(action==='rename-trip')return label(value,60);
   if(action==='rename-member')return label(value,40);
+  if(['add-participant','remove-participant','restore-participant'].includes(action))return value===null?null:memberSnapshot(value);
   if(action==='set-archived'){ensure(typeof value==='boolean','封存狀態無效');return value;}
   ensure(false,'歷史操作無效');
+}
+function memberSnapshot(value) {
+  ensure(value&&typeof value==='object'&&typeof value.active==='boolean','旅伴狀態無效');
+  return {id:uuid(value.id),name:label(value.name,40),active:value.active};
 }
 export function assertDocumentSize(trip) {
   // An archived trip must always have room for its unarchive event.
@@ -83,8 +88,9 @@ export function assertDocumentSize(trip) {
 export function validateTrip(source) {
   ensure(source && typeof source==='object', '旅程資料無效');
   ensure(Object.hasOwn(CURRENCIES,source.currency), '不支援此幣別');
-  ensure(Array.isArray(source.members) && source.members.length>=2 && source.members.length<=LIMITS.members,'每個旅程需要 2–20 位旅伴');
-  const members=source.members.map(m=>({id:uuid(m.id),name:label(m.name,40)})), ids=new Set(members.map(m=>m.id));
+  ensure(Array.isArray(source.members) && source.members.length>=2 && source.members.length<=LIMITS.memberRecords,'每個旅程最多保留 100 位旅伴紀錄');
+  const members=source.members.map(m=>{ensure(m&&typeof m==='object','旅伴資料無效');return memberSnapshot({...m,active:m.active??true});}), ids=new Set(members.map(m=>m.id));
+  const activeCount=members.filter(m=>m.active).length;ensure(activeCount>=1&&activeCount<=LIMITS.members,'旅程須有 1–20 位可記帳旅伴');
   const team=validateTeam(source.team,ids),actorIds=new Set(team.actors.map(a=>a.id));
   ensure(ids.size===members.length && new Set(members.map(m=>m.name)).size===members.length,'旅伴不可重複');
   ensure(Array.isArray(source.expenses) && source.expenses.length<=LIMITS.expenses && Array.isArray(source.repayments) && source.repayments.length<=LIMITS.repayments, '已超過此內測版的旅程紀錄上限');
@@ -106,29 +112,62 @@ export function validateTrip(source) {
   const rawHistory=source.history??[];ensure(Array.isArray(rawHistory)&&rawHistory.length<=LIMITS.history,'更正與旅程歷史已達 300 筆上限，請先備份並建立新旅程');
   ensure(!archived||rawHistory.length<LIMITS.history,'封存前須保留解除封存的歷史容量');
   const history=rawHistory.map(h=>{
-    ensure(h&&['edit-expense','void-expense','rename-trip','rename-member','set-archived'].includes(h.action),'歷史操作無效');
+    ensure(h&&['edit-expense','void-expense','rename-trip','rename-member','add-participant','remove-participant','restore-participant','set-archived'].includes(h.action),'歷史操作無效');
     const targetId=uuid(h.targetId),expenseAction=h.action.endsWith('expense');
-    ensure(expenseAction?expenses.some(e=>e.id===targetId):h.action==='rename-member'?ids.has(targetId):targetId===source.id,'歷史對象無效');
+    const participantAction=['rename-member','add-participant','remove-participant','restore-participant'].includes(h.action);
+    ensure(expenseAction?expenses.some(e=>e.id===targetId):participantAction?ids.has(targetId):targetId===source.id,'歷史對象無效');
     const before=changeValue(h.action,h.before,ids),after=changeValue(h.action,h.after,ids);
     if(expenseAction)ensure(!before.voided && after.voided===(h.action==='void-expense'),'歷史狀態無效');
     if(h.action==='void-expense')ensure(JSON.stringify({...before,voided:true})===JSON.stringify(after),'作廢歷史不應修改帳務');
+    if(h.action==='add-participant')ensure(before===null&&after?.id===targetId&&after.active,'新增旅伴歷史無效');
+    if(h.action==='remove-participant'||h.action==='restore-participant'){
+      const removing=h.action==='remove-participant';
+      ensure(before?.id===targetId&&after?.id===targetId&&before.name===after.name&&before.active===removing&&after.active!==removing,'旅伴停用或恢復歷史無效');
+    }
     return {id:uuid(h.id),action:h.action,targetId,at:timestamp(h.at),before,after,actorId:actorRef(h.actorId,actorIds)};
   });
   ensure(new Set(history.map(h=>h.id)).size===history.length,'更正歷史識別碼不可重複');
-  const latest=new Map();let historicalArchive=false;
+  const latest=new Map(),memberStates=new Map();let historicalArchive=false;
   for(const h of history){
     ensure(!historicalArchive||h.action==='set-archived','封存期間不應有帳務更正');
     if(h.action==='set-archived'){ensure(h.before===historicalArchive,'封存歷史不連續');historicalArchive=h.after;}
-    const key=h.action.endsWith('expense')?`expense:${h.targetId}`:h.action==='rename-member'?`member:${h.targetId}`:h.action;const previous=latest.get(key);if(previous)ensure(JSON.stringify(previous.after)===JSON.stringify(h.before),'更正歷史不連續');latest.set(key,h);
+    if(['rename-member','add-participant','remove-participant','restore-participant'].includes(h.action)){
+      const previous=memberStates.get(h.targetId);
+      if(h.action==='add-participant'){
+        ensure(!previous,'同一旅伴識別碼不可再次新增');
+        memberStates.set(h.targetId,h.after);
+      }else if(h.action==='rename-member'){
+        ensure(!previous||previous.name===h.before,'旅伴更名歷史不連續');
+        memberStates.set(h.targetId,{id:h.targetId,name:h.after,active:previous?.active??true});
+      }else{
+        ensure(previous?JSON.stringify(previous)===JSON.stringify(h.before):h.action==='remove-participant','旅伴狀態歷史不連續');
+        memberStates.set(h.targetId,h.after);
+      }
+      continue;
+    }
+    const key=h.action.endsWith('expense')?`expense:${h.targetId}`:h.action;
+    const previous=latest.get(key);
+    if(previous)ensure(JSON.stringify(previous.after)===JSON.stringify(h.before),'更正歷史不連續');
+    latest.set(key,h);
   }
   ensure(historicalArchive===archived,'封存狀態與歷史不符');
-  for(const h of latest.values()){const value=h.action.endsWith('expense')?expenseFields(expenses.find(e=>e.id===h.targetId),ids):h.action==='rename-member'?members.find(m=>m.id===h.targetId).name:h.action==='rename-trip'?label(source.name,60):archived;ensure(JSON.stringify(h.after)===JSON.stringify(value),'歷史與目前帳目不符');}
+  for(const h of latest.values()){
+    const value=h.action.endsWith('expense')?expenseFields(expenses.find(e=>e.id===h.targetId),ids):h.action==='rename-trip'?label(source.name,60):archived;
+    ensure(JSON.stringify(h.after)===JSON.stringify(value),'歷史與目前帳目不符');
+  }
+  for(const member of members){const state=memberStates.get(member.id);ensure(state?JSON.stringify(state)===JSON.stringify(member):member.active,'旅伴歷史與目前狀態不符');}
   return assertDocumentSize({id:uuid(source.id),name:label(source.name,60),currency:source.currency,createdAt:timestamp(source.createdAt),updatedAt:timestamp(source.updatedAt),archived,members,expenses,repayments,history,team});
 }
 export function newTrip(input) {
   const now=new Date().toISOString();
   ensure(Array.isArray(input.members),'請輸入旅伴');
-  return validateTrip({id:uuid(input.id),name:input.name,currency:input.currency,createdAt:now,updatedAt:now,members:input.members.map(name=>({id:crypto.randomUUID(),name})),expenses:[],repayments:[]});
+  ensure(input.members.length>=2&&input.members.length<=LIMITS.members,'新旅程需要 2–20 位旅伴');
+  return validateTrip({id:uuid(input.id),name:input.name,currency:input.currency,createdAt:now,updatedAt:now,members:input.members.map(name=>({id:crypto.randomUUID(),name,active:true})),expenses:[],repayments:[]});
+}
+function ensureExpenseParticipantsActive(trip,expense,original=null) {
+  const usable=new Set(trip.members.filter(m=>m.active).map(m=>m.id));
+  if(original)for(const id of [...original.payments.map(p=>p.memberId),...original.shares.map(s=>s.memberId)])usable.add(id);
+  ensure([...expense.payments.map(p=>p.memberId),...expense.shares.map(s=>s.memberId)].every(id=>usable.has(id)),'已移除的旅伴不能加入新的支出；如需重新使用，請先恢復旅伴',409);
 }
 export function mutateTrip(trip, action, input, receipt, actorId=null) {
   if(isChangeRetry(trip,action,input))return trip;
@@ -137,7 +176,9 @@ export function mutateTrip(trip, action, input, receipt, actorId=null) {
   if(action==='expense') {
     if(next.expenses.some(e=>e.id===id)) return trip;
     ensure(['equal','exact'].includes(input.mode),'不支援的分攤方式');
-    next.expenses.push({id,title:input.title,amount:minor(input.amount),payments:normalizePayments(input,new Set(next.members.map(m=>m.id))),shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares,date:input.date,category:input.category,voided:false,splitMode:input.mode,receipt,createdBy:actorId});
+    const record={id,title:input.title,amount:minor(input.amount),payments:normalizePayments(input,new Set(next.members.map(m=>m.id))),shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares,date:input.date,category:input.category,voided:false,splitMode:input.mode,receipt,createdBy:actorId};
+    ensureExpenseParticipantsActive(next,expenseFields(record,new Set(next.members.map(m=>m.id))));
+    next.expenses.push(record);
   } else if(action==='repayment') {
     if(next.repayments.some(r=>r.id===id)) return trip;
     const b=balances(trip); minor(input.amount);
@@ -146,17 +187,33 @@ export function mutateTrip(trip, action, input, receipt, actorId=null) {
     const pending=next.repayments.filter(r=>r.status==='pending');
     ensure(input.amount<=Math.min(-b[input.fromId]-pending.filter(r=>r.fromId===input.fromId).reduce((n,r)=>n+r.amount,0),b[input.toId]-pending.filter(r=>r.toId===input.toId).reduce((n,r)=>n+r.amount,0)),'已有待確認還款，請先完成或取消');
     next.repayments.push({id,fromId:input.fromId,toId:input.toId,amount:input.amount,date:input.date,voided:false,status,initialStatus:status,createdBy:actorId,events:[]});
-  } else if(['edit-expense','void-expense','rename-trip','rename-member','set-archived'].includes(action)) {
+  } else if(['edit-expense','void-expense','rename-trip','rename-member','add-participant','remove-participant','restore-participant','set-archived'].includes(action)) {
     const ids=new Set(next.members.map(m=>m.id));let before;
     const after=desiredChange(next,action,input);
     if(action.endsWith('expense')){
       const record=next.expenses.find(e=>e.id===id);ensure(record,'找不到這筆紀錄',404);
       if(action==='void-expense'&&record.voided)return trip;
-      ensure(!record.voided,'已作廢支出無法更正');before=expenseFields(record,ids);Object.assign(record,after);
+      ensure(!record.voided,'已作廢支出無法更正');before=expenseFields(record,ids);
+      if(action==='edit-expense')ensureExpenseParticipantsActive(next,after,before);
+      Object.assign(record,after);
     }else if(action==='rename-member'){
       const member=next.members.find(m=>m.id===id);ensure(member,'找不到這位旅伴',404);
       ensure(!next.members.some(m=>m.id!==id&&m.name===after),'旅伴名稱不可重複');
       before=member.name;member.name=after;
+    }else if(action==='add-participant'){
+      ensure(next.members.filter(m=>m.active).length<LIMITS.members,'可記帳旅伴已達 20 人上限',409);
+      ensure(next.members.length<LIMITS.memberRecords,'歷史旅伴紀錄已達 100 人上限',409);
+      ensure(!next.members.some(m=>m.name===after.name),'旅伴名稱不可重複',409);
+      const reserved=[next.id,input.operationId,...next.members.map(m=>m.id),...next.expenses.flatMap(e=>[e.id,e.receipt?.id]),...next.repayments.map(r=>r.id),...next.history.flatMap(h=>[h.id,h.targetId]),...next.team.actors.map(a=>a.id),...next.team.events.map(e=>e.id)];
+      ensure(reserved.filter(value=>value===id).length===0,'資料識別碼已使用',409);
+      before=null;next.members.push(after);
+    }else if(action==='remove-participant'||action==='restore-participant'){
+      const member=next.members.find(m=>m.id===id);ensure(member,'找不到這位旅伴',404);
+      const removing=action==='remove-participant';
+      ensure(member.active===removing,removing?'旅伴已移除，請重新整理':'旅伴已恢復，請重新整理',409);
+      if(removing)ensure(next.members.filter(m=>m.active).length>1,'旅程至少要保留 1 位可記帳旅伴',409);
+      else ensure(next.members.filter(m=>m.active).length<LIMITS.members,'可記帳旅伴已達 20 人上限',409);
+      before={...member};member.active=!removing;
     }else{ensure(id===next.id,'旅程識別碼不符');before=action==='rename-trip'?next.name:next.archived;if(action==='rename-trip')next.name=after;else next.archived=after;}
     if(JSON.stringify(before)===JSON.stringify(after))return trip;
     next.history.push({id:uuid(input.operationId??(action==='void-expense'?crypto.randomUUID():undefined)),action,targetId:id,at:new Date().toISOString(),before,after,actorId});
@@ -177,11 +234,17 @@ function desiredChange(trip,action,input) {
     return expenseFields({...input,splitMode:input.mode,voided:false,shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares},ids);
   }
   if(action==='void-expense'){const e=trip.expenses.find(e=>e.id===input.id);ensure(e,'找不到這筆紀錄',404);return expenseFields({...e,voided:true},ids);}
-  return changeValue(action,action==='rename-trip'||action==='rename-member'?input.name:input.archived,ids);
+  if(action==='add-participant')return memberSnapshot({id:input.id,name:input.name,active:true});
+  if(action==='remove-participant'||action==='restore-participant'){
+    const member=trip.members.find(m=>m.id===input.id);ensure(member,'找不到這位旅伴',404);
+    return {...member,active:action==='restore-participant'};
+  }
+  return changeValue(action,['rename-trip','rename-member'].includes(action)?input.name:input.archived,ids);
 }
 export function isChangeRetry(trip,action,input) {
   if(!input.operationId)return false;
   uuid(input.operationId);const previous=(trip.history??[]).find(h=>h.id===input.operationId);if(!previous)return false;
   ensure(previous.action===action&&previous.targetId===input.id,'操作識別碼已使用',409);
+  if(action==='remove-participant'||action==='restore-participant')return true;
   ensure(JSON.stringify(previous.after)===JSON.stringify(desiredChange(trip,action,input)),'同一操作識別碼不可送出不同內容',409);return true;
 }
