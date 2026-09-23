@@ -10,6 +10,7 @@
 - 第一批流程完善來源：`be159ae33eda4a72a943141e72892452a0f72a46`；本機通過 11 項測試、TypeScript、Sites Worker 及獨立網頁建置。這次未另做遠端乾淨 clone，與上述 7 項基線驗收分開記錄。
 - 多人功能來源：`a691ffcad09a6bd67ea406d54a061a7d9329dd54`；本機通過 16 項測試、TypeScript、Sites Worker 及獨立網頁建置。此來源包含 schema 3 與資料庫 migration；本次未重做遠端乾淨 clone。
 - 多頁面來源：`29f26e80579b487f3cfcfa2152f2c53930482650`；19 項測試、TypeScript、兩種建置及 Windows 獨立網址／登入檢查通過。帳務與 schema 3 格式未改動。
+- 多人付款來源：`726914f2a32b6ece0aceab0f0ca784e9b5fe385f`；26 項測試、TypeScript、兩種建置、schema 4 Windows 還原與 schema 3 升級均通過。
 - 舊版 `main` 未修改。使用者帳目、收據、密碼及本機演練檔案不納入 Git。
 
 ## 目前 Sites 發布
@@ -17,11 +18,11 @@
 - 專案：`appgprj_6ab2109b6a24819190d3b371de24f1ad`
 - 正式網址：https://tripledger-elvis-lab.workspace-309457.chatgpt.site
 - 受眾：`public`，依使用者明確選擇開放網站入口；帳本內容仍由應用程式驗證登入與核准成員資格。access revision 2，更新於 `2026-09-22T09:32:14.592810+00:00`，未增加 Sites 編輯者。
-- 狀態：`succeeded`，最新版本 6，完成時間 `2026-09-22T10:37:47.296793+00:00`，維持現有公開入口及帳本授權。
-- 最新 GitHub 應用程式來源：`29f26e80579b487f3cfcfa2152f2c53930482650`。
-- 最新 Sites 來源：`5e13552a907efefb4f00a97cb403da2fbc8603b0`。
-- 最新版本 ID：`appgprj_6ab2109b6a24819190d3b371de24f1ad~appgver_98704f7a6dac8191aaa3233057199c18`。
-- 最新部署 ID：`appgdep_6ab25a68b8fc8191a1593fa67aac59ee`。
+- 狀態：`succeeded`，最新版本 7，完成時間 `2026-09-23T01:44:09.946721+00:00`，維持現有公開入口及帳本授權。
+- 最新 GitHub 應用程式來源：`726914f2a32b6ece0aceab0f0ca784e9b5fe385f`。
+- 最新 Sites 來源：`eb258892e136f051faad6ff4feebccf94b38ee1a`。
+- 最新版本 ID：`appgprj_6ab2109b6a24819190d3b371de24f1ad~appgver_b9d31760bcdc8191a4d93b82c7ab0fb0`。
+- 最新部署 ID：`appgdep_6ab32ed6604c8191a45d58f05c3d0205`。
 - 公開後以不含登入 cookie 的 HTTP 請求驗證：首頁 `/` 回應 200，`/api/state` 回應 401 與「請先登入」。此項不是第二個真實 ChatGPT 帳號驗收。
 - 現有正常登入的站主瀏覽器可載入既有帳本及新版「共同記帳」頁籤，顯示管理者角色與建立邀請入口；此項只讀檢查沒有修改既有帳務。
 
@@ -29,7 +30,21 @@ GitHub 保存整個 monorepo；Sites 保存 `apps/web` 專用來源，兩者 SHA
 
 版本 1 已建立雲端測試資料；版本 2 新增備份檢視入口並完成首次還原測試。版本 3 只同步操作說明。版本 4 完成第一批功能與 schema 2 雲端還原，當時仍僅擁有者可存取。版本 4 Sites 來源為 `5bfe767aeddb36b398b23d3406732a1df3a19cc9`，版本 ID 為 `appgprj_6ab2109b6a24819190d3b371de24f1ad~appgver_4467abe69054819188588a7731e68f8b`，部署 ID 為 `appgdep_6ab22ec59f688191af883792af3ee7e8`，成功於 `2026-09-22T07:31:36.689189+00:00`。
 
+## 多人付款驗收（版本 7）
+
+- 「誰先付款」支援從既有旅伴新增／移除多位付款人及個別金額；付款不等於分攤，兩者各自合計須等於支出總額。至少 1 人、最多該帳本旅伴數，禁止重複旅伴及非正數金額。
+- 餘額、還款建議、名稱搜尋、支出明細及更正前後歷史均使用完整付款陣列。記帳人權限仍依 createdBy；參與墊付不會取得他人建立帳目的修改權限。
+- 26 項自動化測試、TypeScript、Sites Worker 與 standalone 建置通過。新增覆蓋多付款人／尾差／指定分攤／不參與分攤的付款者、無效金額、更正／作廢、已還款後反向餘額、重送及同時寫入、付款與權限分離、收據／持久化及舊資料升級。
+- schema 4 保存 payments，仍接受 schema 1–3 的真實 payerId 資料與歷史快照。JSON document 上限增至 1 MiB ＋ 64 KiB，維持既有寫入預留，避免原本合法且接近滿額的舊帳本因升級增量而無法讀取／備份；1,014,407 bytes 舊測試資料轉為 1,048,607 bytes 後可完整往返。
+- 本機 390px 模擬畫面驗證兩位付款、增加至全部旅伴／移除、金額不符拒絕、收據上傳、更正前後明細及餘額，無橫向溢位。支出 1,200 元，甲 800／乙 400，更正成甲 700／乙 500 後，三人平均分攤仍各 400，應收甲 300／乙 100，丙應付 400。總額從 1,000 改 1,100 時，手填甲 600 保留，新增乙預填差額 500。
+- 本機 Sites D1/R2 合成帳本 ID `33b1af23-61bb-4aa1-a8d1-bf1c45b9c51c`，schema 4 revision 3，3 位旅伴、1 筆兩人付款支出、1 筆更正、1 位操作人及 1 張 68-byte 收據；透過正常本機 mock 登入匯出，還原到全新 Windows Node 24／SQLite／收據目錄。
+- 新版備份 SHA-256：`ac94f916346215fcfb76e239c037886ebee1ca5a8235ca133cfc9e39fdc2f0de`；收據 SHA-256：`c4166024f2e7da975c2c1a06b44962f891b0161538a633f8132dc4667e36153a`。報告 `apps/web/.test-output/cloud-restore-abNwxv/report.json` 通過，完成於 `2026-09-23T01:40:26.408Z`。
+- 舊 schema 3 合成帳本另重新還原：保留 2 位操作人、2 筆成員歷史、2 筆還款（1 筆待確認）及收據，單付款者轉為全額付款；報告 `apps/web/.test-output/cloud-restore-K7fada/report.json` 通過，完成於 `2026-09-23T01:40:27.302Z`。
+- 兩次還原皆核對每個財務及歷史欄位、權限清除、重複匯入拒絕、收據 bytes／SHA-256、重啟持久化與再次匯出。測試服務已停止；備份、圖片、報告不提交 Git。這是本機合成帳本驗收，不代表新版正式雲端雙帳號或實體 NAS 驗收。
+
 ## 多頁面驗收（版本 6）
+
+版本 6 成功於 `2026-09-22T10:37:47.296793+00:00`，Sites 來源 `5e13552a907efefb4f00a97cb403da2fbc8603b0`，版本 ID `appgprj_6ab2109b6a24819190d3b371de24f1ad~appgver_98704f7a6dac8191aaa3233057199c18`，部署 ID `appgdep_6ab25a68b8fc8191a1593fa67aac59ee`。
 
 - 首頁旅程卡片清單，進行中／已封存篩選保存在 query；加入頁 `/join`；帳本支出、分攤、成員及備份各有 `/trips/<id>/<section>` 網址。
 - Sites 新增框架頁面入口；Windows 自架入口使用同一份路由解析與 HTML fallback。直接載入／重新整理保留指定帳本及頁面，登入保留返回位置，既有 `/#join=...` 邀請相容。找不到或無權帳本不會顯示另一帳本。
