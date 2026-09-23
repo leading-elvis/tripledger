@@ -36,7 +36,14 @@ async function main() {
   const raw = readFileSync(sourcePath);
   const backup = JSON.parse(raw.toString('utf8').replace(/^\uFEFF/, ''));
   const { trip: original, files } = await inspectBackup(backup);
-  if (backup.schemaVersion === 3) assert.deepEqual(JSON.parse(JSON.stringify(original)), backup.trip, 'Schema 3 validation must preserve every exported financial and history field.');
+  if (backup.schemaVersion >= 3) {
+    const expected=structuredClone(backup.trip);
+    if(backup.schemaVersion===3)for(const fields of [...expected.expenses,...expected.history.filter(h=>['edit-expense','void-expense'].includes(h.action)).flatMap(h=>[h.before,h.after])]){
+      if(fields.payments===undefined){fields.payments=[{memberId:fields.payerId,amount:fields.amount}];delete fields.payerId;}
+    }
+    assert.deepEqual(JSON.parse(JSON.stringify(original)), expected, 'Backup validation must preserve every field except the explicit legacy payer upgrade.');
+  }
+  if(backup.schemaVersion<4)for(const expense of backup.trip.expenses.filter(e=>e.payerId))assert.deepEqual(original.expenses.find(e=>e.id===expense.id).payments,[{memberId:expense.payerId,amount:expense.amount}]);
   assert.ok(existsSync(join(webRoot, 'dist-standalone', 'index.html')), 'Build apps/web/standalone/vite.config.ts before running.');
 
   const outputRoot = join(webRoot, '.test-output');
@@ -55,7 +62,7 @@ async function main() {
     source: { path: sourcePath, sha256: await sha256(raw), schemaVersion: backup.schemaVersion, revision: backup.sourceRevision ?? null },
     destination: { platform: process.platform, runtime: 'Independent Node.js + SQLite + local receipt files', dataDirectory: join(runDir, 'data'), origin },
     tripId: original.id, currency: original.currency,
-    counts: { members: original.members.length, expenses: original.expenses.length, repayments: original.repayments.length, history: original.history.length, actors: original.team.actors.length, membershipEvents: original.team.events.length, pendingRepayments: original.repayments.filter(r=>r.status==='pending').length, receipts: files.length },
+    counts: { members: original.members.length, expenses: original.expenses.length, multiPayerExpenses: original.expenses.filter(e=>e.payments.length>1).length, paymentEntries: original.expenses.reduce((n,e)=>n+e.payments.length,0), repayments: original.repayments.length, history: original.history.length, actors: original.team.actors.length, membershipEvents: original.team.events.length, pendingRepayments: original.repayments.filter(r=>r.status==='pending').length, receipts: files.length },
     checks: {},
   };
 
@@ -181,7 +188,10 @@ async function main() {
     assert.deepEqual(await verifyReceipts(state.trips[0], cookie), report.receipts);
     report.checks.restartPersistenceVerified = true;
     stage = 'restored full backup';
-    const reexported = await inspectBackup(await json(`trips/${original.id}/backup`, undefined, cookie));
+    const rawReexported=await json(`trips/${original.id}/backup`,undefined,cookie);
+    assert.equal(rawReexported.schemaVersion,4);
+    const reexported = await inspectBackup(rawReexported);
+    assert.deepEqual(JSON.parse(JSON.stringify(reexported.trip)),rawReexported.trip);
     assert.deepEqual(portableTrip(reexported.trip), portableTrip(original));
     assert.equal(reexported.files.length, files.length);
     report.checks.restoredBackupValidated = true;

@@ -37,7 +37,7 @@ test('shared ledger: approval, roles, own expense editing, actor attribution and
   const e=(await f.expense('A')).value.trip.expenses[0];assert.ok(e.createdBy);assert.equal((await f.get('B')).expenses.length,1);
   assert.equal((await f.act('B','void-expense',{id:e.id})).status,403);
   assert.equal((await f.act('B','rename-trip',{name:'未授權'})).status,403);
-  const eb=(await f.expense('B','乙代記')).value.trip.expenses.at(-1);assert.equal(eb.createdBy,editor.me.actorId);assert.equal(eb.payerId,a.id);
+  const eb=(await f.expense('B','乙代記')).value.trip.expenses.at(-1);assert.equal(eb.createdBy,editor.me.actorId);assert.deepEqual(eb.payments,[{memberId:a.id,amount:eb.amount}]);
   assert.equal((await f.act('B','void-expense',{id:eb.id,operationId:crypto.randomUUID()})).status,200);
   assert.equal((await f.call('B',`trips/${f.trip.id}/backup`)).status,403);
   for(const action of ['expense','repayment','void-expense','rename-trip','set-archived','confirm-repayment'])assert.equal((await f.act('C',action,{id:e.id})).status,403);
@@ -46,6 +46,18 @@ test('shared ledger: approval, roles, own expense editing, actor attribution and
   assert.equal((await f.call('D',`trips/${f.trip.id}/receipts/${crypto.randomUUID()}`)).status,404);
   owner=await f.get();assert.equal(owner.history[0].actorId,editor.me.actorId);
   const data=JSON.stringify(await f.get('B'));for(const key of ['_access','_owner','hash','accountId','@example.invalid'])assert.ok(!data.includes(key),key);
+});
+
+test('contributing money does not grant edit rights to another creator’s expense',async t=>{
+  const f=await fixture(t),[a,b]=f.trip.members;
+  const editor=await f.joinAs('B','editor',b.id);await f.joinAs('C','viewer');
+  const data={id:crypto.randomUUID(),title:'兩位付款',amount:9000,payments:[{memberId:a.id,amount:5000},{memberId:b.id,amount:4000}],date:'2026-09-23',category:'餐飲',mode:'equal',memberIds:f.trip.members.map(m=>m.id)};
+  const ownerExpense=await f.act('A','expense',data);assert.equal(ownerExpense.status,200);
+  assert.equal((await f.act('B','edit-expense',{...data,operationId:crypto.randomUUID(),title:'不可越權'})).status,403);
+  assert.equal((await f.act('B','void-expense',{id:data.id,operationId:crypto.randomUUID()})).status,403);
+  assert.equal((await f.act('C','expense',{...data,id:crypto.randomUUID()})).status,403);
+  const own={...data,id:crypto.randomUUID()};const added=await f.act('B','expense',own);assert.equal(added.status,200);assert.equal(added.value.trip.expenses.at(-1).createdBy,editor.actorId);
+  const edited=await f.act('B','edit-expense',{...own,operationId:crypto.randomUUID(),payments:[{memberId:a.id,amount:4000},{memberId:b.id,amount:5000}]});assert.equal(edited.status,200);assert.equal(edited.value.trip.history.at(-1).actorId,editor.actorId);
 });
 
 test('invitation expiry/revocation and CAS prevent reusing grants after removal',async t=>{
@@ -95,12 +107,12 @@ test('proxy confirmation only for unbound recipients, cancellation/rejection and
   assert.equal((await f.get()).repayments.at(-1).status,'rejected');
 });
 
-test('schema 3 restores financial/actor/member history and files but no invitations or live authority',async t=>{
+test('schema 4 restores financial/actor/member history and files but no invitations or live authority',async t=>{
   const f=await fixture(t);const member=await f.joinAs('B','editor',f.trip.members[1].id);await f.joinAs('C','viewer');
   const bytes=new Uint8Array([137,80,78,71,1,2,3]),id=crypto.randomUUID();let r=await f.act('B','expense',{id,title:'含收據',amount:9000,payerId:f.trip.members[0].id,mode:'equal',memberIds:f.trip.members.map(m=>m.id),category:'交通',date:'2026-09-22',file:{mime:'image/png',data:encode(bytes)}});assert.equal(r.status,200);
   await f.act('B','repayment',{id:crypto.randomUUID(),fromId:f.trip.members[1].id,toId:f.trip.members[0].id,amount:1000,date:'2026-09-22'});
   await f.act('A','remove-member',{id:member.actorId});
-  const backup=(await f.call('A',`trips/${f.trip.id}/backup`)).value;assert.equal(backup.schemaVersion,3);assert.ok(backup.trip.team.actors.length>=3);assert.ok(backup.trip.team.events.length>=4);assert.equal(backup.trip.repayments[0].status,'pending');
+  const backup=(await f.call('A',`trips/${f.trip.id}/backup`)).value;assert.equal(backup.schemaVersion,4);assert.ok(backup.trip.team.actors.length>=3);assert.ok(backup.trip.team.events.length>=4);assert.equal(backup.trip.repayments[0].status,'pending');
   const serialized=JSON.stringify(backup);for(const key of ['_access','bindings','invites','requests','accountId','subject','@example.invalid'])assert.ok(!serialized.includes(key),key);
   const broken=structuredClone(backup);delete broken.trip.expenses[0].createdBy;await assert.rejects(inspectBackup(broken));
   r=await f.call('RESTORER','import',{...backup,_access:{bindings:[{accountId:'B',actorId:member.actorId}]}},f.destination);assert.equal(r.status,201);assert.equal(r.value.trip.me.role,'admin');assert.equal(r.value.trip.me.actorId,null);assert.ok(r.value.trip.teamMembers.every(a=>!a.connected));

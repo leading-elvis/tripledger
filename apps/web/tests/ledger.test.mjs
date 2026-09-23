@@ -127,7 +127,7 @@ test('3-person 10-expense workflow: correction CAS, history export/restore, arch
     t=(await call(`trips/${t.id}/rename-trip`,{id:t.id,operationId:crypto.randomUUID(),revision:t.revision,name:'完成驗收'})).value.trip;
     t=(await call(`trips/${t.id}/set-archived`,{id:t.id,operationId:crypto.randomUUID(),revision:t.revision,archived:true})).value.trip;
     assert.equal((await call(`trips/${t.id}/expense`,{...expense(t),revision:t.revision})).status,409);
-    const backup=(await call(`trips/${t.id}/backup`)).value;assert.equal(backup.schemaVersion,3);assert.equal(backup.files[0].sha256,await sha256(bytes));
+    const backup=(await call(`trips/${t.id}/backup`)).value;assert.equal(backup.schemaVersion,4);assert.equal(backup.files[0].sha256,await sha256(bytes));
     const after=(await call('import',backup,restored)).value.trip;assert.deepEqual(after.history,t.history);assert.deepEqual(after.repayments,t.repayments);assert.deepEqual(balances(after),balances(t));assert.equal(after.archived,true);assert.deepEqual(await restored.objects.get(`${t.id}/${after.expenses[0].receipt.id}`),bytes);
     storage.close();storage=openStorage(join(dir,'source'));assert.deepEqual((await call('state')).value.trips[0],t);
     const restoredBackup=(await call(`trips/${t.id}/backup`,undefined,restored)).value;assert.deepEqual(restoredBackup.trip.history,backup.trip.history);

@@ -1,4 +1,4 @@
-import { AppError, ensure, uuid, newTrip, mutateTrip, LIMITS, receiptMeta, validateTrip, isChangeRetry, evenShares } from './domain.mjs';
+import { AppError, ensure, uuid, newTrip, mutateTrip, LIMITS, receiptMeta, validateTrip, isChangeRetry, evenShares, normalizePayments } from './domain.mjs';
 import { createBackup, inspectBackup, decode, sha256, checkFile } from './backup.mjs';
 import { accessOf, memberOf, publicTrip, prepareActor, changeAccess, requestJoin, authorize } from './collaboration.mjs';
 
@@ -61,7 +61,8 @@ export async function handleApi(request,{repo,objects,subject,mode='sites',profi
           const e=trip.expenses.find(e=>e.id===input.id),original=trip.history.find(h=>h.targetId===e.id)?.before??e;
           ensure((e.createdBy===permission.actorId||!e.createdBy&&permission.isOwner),'操作識別碼已使用',409);
           const shares=input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares;
-          ensure(JSON.stringify([original.title,original.amount,original.payerId,original.shares,original.date,original.category,original.splitMode])===JSON.stringify([input.title,input.amount,input.payerId,shares,input.date,input.category,input.mode]),'同一支出識別碼不可送出不同內容',409);
+          const payments=normalizePayments(input,new Set(trip.members.map(m=>m.id)));
+          ensure(JSON.stringify([original.title,original.amount,original.payments,original.shares,original.date,original.category,original.splitMode])===JSON.stringify([input.title,input.amount,payments,shares,input.date,input.category,input.mode]),'同一支出識別碼不可送出不同內容',409);
           ensure(!!e.receipt===!!input.file&&(!e.receipt||(input.file.mime===e.receipt.mime&&await sha256(decode(input.file.data))===e.receipt.sha256)),'同一支出識別碼的收據不符',409);
           return json({trip:present(trip)});
         }
@@ -72,6 +73,7 @@ export async function handleApi(request,{repo,objects,subject,mode='sites',profi
         if(input.operationId){const h=trip.history.find(h=>h.id===input.operationId);if(h){ensure(h.actorId===permission.actorId,'操作識別碼已使用',409);if(isChangeRetry(trip,action,input))return json({trip:present(trip)});}
           for(const r of trip.repayments){const e=r.events.find(e=>e.id===input.operationId);if(e){ensure(r.id===input.id&&`${e.action}-repayment`===action&&e.actorId===permission.actorId,'操作識別碼已使用',409);return json({trip:present(trip)});}}}
         ensure(input.revision===trip.revision,'帳目已更新，請重新整理後再送出',409);
+        if(action==='edit-expense'&&trip.expenses.find(e=>e.id===input.id)?.payments.length>1)ensure(Array.isArray(input.payments),'這筆支出有多位付款人，請重新整理頁面後再更正',409);
         const prepared=prepareActor(trip,owner,profile);
         let meta,key;let cleanupSafe=true;
         try {

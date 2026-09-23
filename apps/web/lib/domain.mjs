@@ -1,6 +1,7 @@
 // Pure money/domain code shared by Workers, the browser and independent Node hosting.
 export const CURRENCIES = { TWD: 2, USD: 2, JPY: 0, EUR: 2, HKD: 2 };
-export const LIMITS = { members: 20, expenses: 300, repayments: 200, history: 300, documentBytes: 1048576, receiptBytes: 1048576, receiptTotal: 8388608, bodyBytes: 14680064 };
+// Preserve room to upgrade legacy payer fields in expenses and historical snapshots.
+export const LIMITS = { members: 20, expenses: 300, repayments: 200, history: 300, documentBytes: 1114112, receiptBytes: 1048576, receiptTotal: 8388608, bodyBytes: 14680064 };
 export class AppError extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 export function ensure(condition, message, status = 400) { if (!condition) throw new AppError(message, status); }
 export function uuid(value) { ensure(typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value), '資料識別碼無效'); return value; }
@@ -20,7 +21,7 @@ export function evenShares(amount, memberIds) {
 }
 export function balances(trip) {
   const values = Object.fromEntries(trip.members.map(m => [m.id, 0]));
-  for (const e of trip.expenses.filter(e => !e.voided)) { values[e.payerId] += e.amount; for (const s of e.shares) values[s.memberId] -= s.amount; }
+  for (const e of trip.expenses.filter(e => !e.voided)) { for(const p of e.payments??[{memberId:e.payerId,amount:e.amount}])values[p.memberId]+=p.amount; for (const s of e.shares) values[s.memberId] -= s.amount; }
   for (const r of trip.repayments.filter(r => !r.voided && (!r.status || r.status==='confirmed'))) { values[r.fromId] += r.amount; values[r.toId] -= r.amount; }
   return values;
 }
@@ -46,8 +47,18 @@ export function receiptMeta(value) {
   ensure(Number.isInteger(value.size) && value.size>0 && value.size<=LIMITS.receiptBytes && /^[a-f0-9]{64}$/.test(value.sha256), '收據資料無效');
   return {id:uuid(value.id),mime:value.mime,size:value.size,sha256:value.sha256};
 }
+export function normalizePayments(e, ids) {
+  const payments=e.payments===undefined?[{memberId:e.payerId,amount:e.amount}]:e.payments;
+  ensure(Array.isArray(payments)&&payments.length>0&&payments.length<=ids.size,'請新增 1 位以上且不重複的付款旅伴');
+  const clean=payments.map(p=>{ensure(p&&ids.has(p.memberId),'付款旅伴無效');return {memberId:p.memberId,amount:minor(p.amount)};});
+  ensure(new Set(clean.map(p=>p.memberId)).size===clean.length,'同一付款旅伴只能填寫一次');
+  ensure(clean.reduce((sum,p)=>sum+p.amount,0)===minor(e.amount),'付款金額加總必須等於支出總額');
+  if(e.payments!==undefined&&e.payerId!==undefined)ensure(clean.length===1&&clean[0].memberId===e.payerId,'新舊付款資料不一致');
+  return clean.sort((a,b)=>a.memberId<b.memberId?-1:a.memberId>b.memberId?1:0);
+}
 function expenseFields(e, ids) {
-  ensure(e && ids.has(e.payerId) && typeof e.voided==='boolean','付款旅伴或紀錄狀態無效');
+  ensure(e && typeof e.voided==='boolean','支出紀錄狀態無效');
+  const payments=normalizePayments(e,ids);
   ensure(Array.isArray(e.shares) && e.shares.length>0 && e.shares.length<=ids.size,'請選擇分攤旅伴');
   const shares=e.shares.map(s=>{ensure(ids.has(s.memberId),'分攤旅伴無效');return {memberId:s.memberId,amount:minor(s.amount,true)};});
   ensure(new Set(shares.map(s=>s.memberId)).size===shares.length && shares.reduce((s,x)=>s+x.amount,0)===minor(e.amount),'分攤加總必須等於支出金額');
@@ -55,7 +66,7 @@ function expenseFields(e, ids) {
   // v1 saved shares but not the user's split mode. Never silently redistribute them.
   const splitMode=e.splitMode??'exact';ensure(['equal','exact'].includes(splitMode),'分攤方式無效');
   if(splitMode==='equal')ensure(JSON.stringify(shares)===JSON.stringify(evenShares(e.amount,shares.map(s=>s.memberId))),'平均分攤資料不符');
-  return {title:label(e.title),amount:e.amount,payerId:e.payerId,shares,date:day(e.date),category:e.category,voided:e.voided,splitMode};
+  return {title:label(e.title),amount:e.amount,payments,shares,date:day(e.date),category:e.category,voided:e.voided,splitMode};
 }
 function changeValue(action,value,ids) {
   if(action==='edit-expense'||action==='void-expense')return expenseFields(value,ids);
@@ -125,7 +136,7 @@ export function mutateTrip(trip, action, input, receipt, actorId=null) {
   if(action==='expense') {
     if(next.expenses.some(e=>e.id===id)) return trip;
     ensure(['equal','exact'].includes(input.mode),'不支援的分攤方式');
-    next.expenses.push({id,title:input.title,amount:minor(input.amount),payerId:input.payerId,shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares,date:input.date,category:input.category,voided:false,splitMode:input.mode,receipt,createdBy:actorId});
+    next.expenses.push({id,title:input.title,amount:minor(input.amount),payments:normalizePayments(input,new Set(next.members.map(m=>m.id))),shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares,date:input.date,category:input.category,voided:false,splitMode:input.mode,receipt,createdBy:actorId});
   } else if(action==='repayment') {
     if(next.repayments.some(r=>r.id===id)) return trip;
     const b=balances(trip); minor(input.amount);
