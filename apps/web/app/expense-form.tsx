@@ -59,7 +59,7 @@ export function ExpenseForm({trip,expense,busy,submit}:{trip:Trip;expense?:Expen
       await submit({id,operationId,revision,title:form.get('title'),amount:total,payments:paid,category,date:form.get('date'),mode,memberIds:selected,shares,...(!expense?{file:await imagePayload(file)}:{})});
     }catch(e){setError(e instanceof Error?e.message:'請確認資料');}
   };
-  return <form onSubmit={e=>void save(e)}><fieldset className="form-stack" disabled={busy}>
+  return <form className="dialog-main-form" onSubmit={e=>void save(e)}><fieldset className="form-stack" disabled={busy}>
     {!allowed&&<p className="notice" role="alert">目前沒有儲存權限，你的輸入仍保留。請向管理者確認權限。</p>}
     {stale&&<div className="notice" role="alert"><p>帳本已有較新的資料，你的輸入仍保留。確認目前帳目後，才能重新送出。</p>{latest&&<div><p>目前儲存：{latest.title} · {formatMoney(latest.amount,trip.currency)}</p><p>{latest.date} · {latest.category} · {latest.voided?'已作廢':'有效支出'}</p><p>先付款：{latest.payments.map(p=>`${trip.members.find(m=>m.id===p.memberId)?.name} ${formatMoney(p.amount,trip.currency)}`).join('、')}</p><p>分攤：{latest.shares.map(s=>`${trip.members.find(m=>m.id===s.memberId)?.name} ${formatMoney(s.amount,trip.currency)}`).join('、')}</p></div>}<button type="button" className="secondary" disabled={trip.archived||latest?.voided} onClick={()=>{setRevision(trip.revision);setOperationId(crypto.randomUUID());}}>已核對，保留輸入並使用最新版本</button></div>}
     {(trip.archived||latest?.voided)&&<p className="notice" role="alert">{trip.archived?'旅程已封存':'支出已作廢'}，目前無法儲存。你的輸入仍保留在此表單。</p>}
