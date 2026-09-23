@@ -67,13 +67,13 @@ test('at least one active companion remains and archived trips cannot change the
   for(const action of ['add-participant','remove-participant','restore-participant'])assert.throws(()=>mutateTrip(archived,action,{id:action==='add-participant'?id():b.id,name:'丙',operationId:id()}));
 });
 
-test('schema 6 backup preserves active state and roster history; schema 5 upgrades to active companions',async()=>{
+test('schema 7 backup preserves active state and roster history; schema 5 upgrades to active companions',async()=>{
   let trip=newTrip({id:id(),name:'備份',currency:'TWD',members:['甲','乙']});
   const retired=trip.members[1].id;
   trip=mutateTrip(trip,'remove-participant',{id:retired,operationId:id()});
   trip=mutateTrip(trip,'add-participant',{id:id(),name:'丙',operationId:id()});
   const backup=await createBackup({...trip,revision:3},{get:()=>null});
-  assert.equal(backup.schemaVersion,6);
+  assert.equal(backup.schemaVersion,7);
   assert.deepEqual((await inspectBackup(backup)).trip,trip);
   await assert.rejects(inspectBackup({...backup,schemaVersion:5}),error=>error.status===400);
   const old=newTrip({id:id(),name:'舊備份',currency:'TWD',members:['甲','乙']});

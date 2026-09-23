@@ -46,7 +46,7 @@ test('real legacy payer fields and history upgrade from schemas 1-3; schema 4 re
   t=mutateTrip(t,'edit-expense',{...e,operationId:crypto.randomUUID(),payments:[{memberId:t.members[1].id,amount:e.amount}]});
   t=mutateTrip(t,'void-expense',{id:e.id,operationId:crypto.randomUUID()});const old=legacy(t);
   for(const version of [2,3]){const restored=await inspectBackup({format:'tripledger-backup',schemaVersion:version,trip:old,files:[]});assert.deepEqual(restored.trip,t);assert.equal(restored.trip.history[0].before.payments[0].memberId,t.members[0].id);}
-  const backup=await createBackup({...t,revision:3},{get:()=>null});assert.equal(backup.schemaVersion,6);
+  const backup=await createBackup({...t,revision:3},{get:()=>null});assert.equal(backup.schemaVersion,7);
   for(const which of ['expense','before','after']){const bad=structuredClone(backup);const fields=which==='expense'?bad.trip.expenses[0]:bad.trip.history[0][which];fields.payerId=fields.payments[0].memberId;delete fields.payments;await assert.rejects(inspectBackup(bad));}
   const corrupt=structuredClone(backup);corrupt.trip.history[0].before.payments[0].amount--;await assert.rejects(inspectBackup(corrupt));
 });
@@ -59,7 +59,7 @@ test('near-capacity legacy documents remain readable and round-trip through sche
   assert.ok(Buffer.byteLength(JSON.stringify(old))<=1048576-32768);
   const {trip}=await inspectBackup({format:'tripledger-backup',schemaVersion:3,trip:old,files:[]});
   assert.ok(Buffer.byteLength(JSON.stringify(trip))>1048576);
-  const backup=await createBackup(trip,{get:()=>null});assert.equal(backup.schemaVersion,6);
+  const backup=await createBackup(trip,{get:()=>null});assert.equal(backup.schemaVersion,7);
   const restored=await inspectBackup(backup);assert.deepEqual(restored.trip,trip);assert.deepEqual(balances(restored.trip),balances(old));
   assert.equal(JSON.stringify(backup).includes('payerId'),false);
 });
@@ -76,7 +76,7 @@ test('persistent API: legacy database upgrade, payment retry/CAS, receipt restor
   const retried=await call(`trips/${old.id}/expense`,{...newInput,payments:[...newInput.payments].reverse()});assert.equal(retried.status,200);assert.equal(retried.value.trip.revision,current.revision);
   const modified=[{memberId:old.members[0].id,amount:5000},{memberId:old.members[1].id,amount:5001}];assert.equal((await call(`trips/${old.id}/expense`,{...newInput,payments:modified})).status,409);
   const edits=[newInput.payments,modified].map(payments=>call(`trips/${old.id}/edit-expense`,{...newInput,revision:current.revision,payments,operationId:crypto.randomUUID(),title:'共同修改'}));assert.deepEqual((await Promise.all(edits)).map(r=>r.status).sort(),[200,409]);
-  const backup=(await call(`trips/${old.id}/backup`)).value;assert.equal(backup.schemaVersion,6);assert.ok(backup.trip.expenses.every(e=>e.payments.length===2));
+  const backup=(await call(`trips/${old.id}/backup`)).value;assert.equal(backup.schemaVersion,7);assert.ok(backup.trip.expenses.every(e=>e.payments.length===2));
   storage.close();storage=openStorage(join(dir,'source'));assert.deepEqual(JSON.parse(JSON.stringify(validateTrip((await call('state')).value.trips[0]))),backup.trip);
   const imported=(await call('import',backup,destination)).value.trip;assert.deepEqual(imported.history,backup.trip.history);assert.deepEqual(imported.expenses.map(e=>e.payments),backup.trip.expenses.map(e=>e.payments));assert.deepEqual(balances(imported),balances(backup.trip));assert.deepEqual(await destination.objects.get(`${old.id}/${imported.expenses[1].receipt.id}`),bytes);
 });

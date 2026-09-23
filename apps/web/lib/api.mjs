@@ -1,4 +1,4 @@
-import { AppError, ensure, uuid, newTrip, mutateTrip, LIMITS, receiptMeta, validateTrip, isChangeRetry, evenShares, normalizePayments } from './domain.mjs';
+import { AppError, ensure, uuid, newTrip, mutateTrip, LIMITS, receiptMeta, validateTrip, isChangeRetry, evenShares, mixedSplit, normalizePayments } from './domain.mjs';
 import { createBackup, inspectBackup, decode, sha256, checkFile } from './backup.mjs';
 import { accessOf, memberOf, publicTrip, prepareActor, changeAccess, requestJoin, authorize } from './collaboration.mjs';
 
@@ -60,9 +60,11 @@ export async function handleApi(request,{repo,objects,subject,mode='sites',profi
         if(action==='expense'&&trip.expenses.some(e=>e.id===input.id)) {
           const e=trip.expenses.find(e=>e.id===input.id),original=trip.history.find(h=>h.targetId===e.id)?.before??e;
           ensure((e.createdBy===permission.actorId||!e.createdBy&&permission.isOwner),'操作識別碼已使用',409);
-          const shares=input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares;
-          const payments=normalizePayments(input,new Set(trip.members.map(m=>m.id)));
-          ensure(JSON.stringify([original.title,original.amount,original.payments,original.shares,original.date,original.category,original.splitMode])===JSON.stringify([input.title,input.amount,payments,shares,input.date,input.category,input.mode]),'同一支出識別碼不可送出不同內容',409);
+          const ids=new Set(trip.members.map(m=>m.id));
+          const mixed=input.mode==='mixed'?mixedSplit(input.amount,input.memberIds,input.personalItems,ids):null;
+          const shares=input.mode==='equal'?evenShares(input.amount,input.memberIds):mixed?mixed.shares:input.shares;
+          const payments=normalizePayments(input,ids);
+          ensure(JSON.stringify([original.title,original.amount,original.payments,original.shares,original.date,original.category,original.splitMode,original.equalMemberIds,original.personalItems])===JSON.stringify([input.title,input.amount,payments,shares,input.date,input.category,input.mode,mixed?.equalMemberIds,mixed?.personalItems]),'同一支出識別碼不可送出不同內容',409);
           ensure(!!e.receipt===!!input.file&&(!e.receipt||(input.file.mime===e.receipt.mime&&await sha256(decode(input.file.data))===e.receipt.sha256)),'同一支出識別碼的收據不符',409);
           return json({trip:present(trip)});
         }

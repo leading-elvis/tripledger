@@ -204,6 +204,28 @@ footer { padding-top: 42px; color: #8e8e93; }
 .split-row:last-child { border: 0; }
 .split-row > label { flex: 1; align-self: stretch; min-width: 0; font-size: 15px; }
 .split-row > input { min-height: 44px; border-radius: 10px; }
+.split-help { margin: 0 0 10px; line-height: 1.5; }
+.personal-split { display: flex; flex-direction: column; gap: 13px; padding: 17px; border: 1px solid var(--border); border-radius: 16px; }
+.personal-split-heading h3, .final-shares h3 { margin: 0; font-size: 15px; }
+.personal-split-heading p { margin: 3px 0 0; line-height: 1.5; }
+.personal-item { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 13px; background: var(--muted); }
+.personal-item-title { display: flex; align-items: center; justify-content: space-between; min-height: 34px; font-size: 13px; }
+.personal-item-title .icon-button { color: var(--destructive); }
+.personal-item .field input, .personal-item .select-control { background: var(--card); border-color: var(--border); }
+.personal-item-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; align-items: end; }
+.personal-item-fields > * { min-width: 0; }
+.personal-add { width: 100%; }
+.personal-total { padding: 13px 14px; border-radius: 12px; background: var(--muted); font-size: 14px; }
+.personal-total-ready { background: #e3f6ed; }
+.personal-total > div, .final-shares > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.personal-total > div + div { margin-top: 5px; }
+.personal-total strong, .final-shares strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.personal-total p { margin: 8px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted-foreground); }
+.final-shares { padding-top: 5px; border-top: 1px solid var(--border); }
+.final-shares h3 { margin: 0 0 7px; }
+.final-shares > div { min-height: 32px; font-size: 14px; }
+.mixed-expense-detail { margin: 8px 0; }
+.mixed-expense-detail > p { margin: 4px 0; }
 .team-card { margin: 9px 0; padding: 17px; border: 1px solid var(--border); border-radius: 15px; background: var(--card); gap: 11px; }
 .team-invite { padding: 18px; border-radius: 16px; background: var(--muted); }
 .team-section { margin: 24px 0 0; }
@@ -302,7 +324,9 @@ footer { padding-top: 42px; color: #8e8e93; }
   .team-invite { padding: 15px; }
   .team-card { padding: 14px; }
   .form-row { grid-template-columns: 1fr; }
-  .payer-group, .split-members { padding: 13px; }
+  .payer-group, .split-members, .personal-split { padding: 13px; }
+  .personal-item { padding: 12px; }
+  .personal-item-fields { grid-template-columns: 1fr; }
   .payer-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr) 44px; gap: 5px; }
   .payer-row .field { font-size: 12px; }
   .payer-row .icon-button { min-width: 44px; min-height: 44px; padding: 4px; }

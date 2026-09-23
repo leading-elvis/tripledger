@@ -19,6 +19,22 @@ export function evenShares(amount, memberIds) {
   minor(amount); ensure(Array.isArray(memberIds) && memberIds.length > 0 && memberIds.length <= LIMITS.members && new Set(memberIds).size === memberIds.length, '請選擇不重複的分攤旅伴');
   return memberIds.map((memberId, i) => ({ memberId, amount: Math.floor(amount / memberIds.length) + (i < amount % memberIds.length ? 1 : 0) }));
 }
+export function mixedSplit(amount, equalMemberIds, personalItems, ids) {
+  const total=minor(amount);
+  ensure(Array.isArray(personalItems)&&personalItems.length>=1&&personalItems.length<=40,'請新增 1–40 筆個人項目');
+  const items=personalItems.map(item=>{
+    ensure(item&&typeof item==='object'&&typeof item.memberId==='string','個人項目的旅伴無效');
+    if(ids)ensure(ids.has(item.memberId),'個人項目的旅伴無效');
+    return {name:label(item.name,40),memberId:item.memberId,amount:minor(item.amount)};
+  });
+  const personalTotal=items.reduce((sum,item)=>sum+item.amount,0);
+  ensure(personalTotal>0&&personalTotal<total,'個人項目合計須小於支出總額，保留可平均分攤的金額');
+  const equal=evenShares(total-personalTotal,equalMemberIds);
+  if(ids)ensure(equal.every(share=>ids.has(share.memberId)),'平均分攤旅伴無效');
+  const amounts=new Map(equal.map(share=>[share.memberId,share.amount]));
+  for(const item of items)amounts.set(item.memberId,(amounts.get(item.memberId)??0)+item.amount);
+  return {equalMemberIds:[...equalMemberIds],personalItems:items,shares:[...amounts].map(([memberId,amount])=>({memberId,amount}))};
+}
 export function balances(trip) {
   const values = Object.fromEntries(trip.members.map(m => [m.id, 0]));
   for (const e of trip.expenses.filter(e => !e.voided)) { for(const p of e.payments??[{memberId:e.payerId,amount:e.amount}])values[p.memberId]+=p.amount; for (const s of e.shares) values[s.memberId] -= s.amount; }
@@ -64,9 +80,11 @@ function expenseFields(e, ids) {
   ensure(new Set(shares.map(s=>s.memberId)).size===shares.length && shares.reduce((s,x)=>s+x.amount,0)===minor(e.amount),'分攤加總必須等於支出金額');
   ensure(['餐飲','交通','住宿','購物','其他'].includes(e.category),'支出分類無效');
   // v1 saved shares but not the user's split mode. Never silently redistribute them.
-  const splitMode=e.splitMode??'exact';ensure(['equal','exact'].includes(splitMode),'分攤方式無效');
+  const splitMode=e.splitMode??'exact';ensure(['equal','exact','mixed'].includes(splitMode),'分攤方式無效');
   if(splitMode==='equal')ensure(JSON.stringify(shares)===JSON.stringify(evenShares(e.amount,shares.map(s=>s.memberId))),'平均分攤資料不符');
-  return {title:label(e.title),amount:e.amount,payments,shares,date:day(e.date),category:e.category,voided:e.voided,splitMode};
+  const mixed=splitMode==='mixed'?mixedSplit(e.amount,e.equalMemberIds,e.personalItems,ids):null;
+  if(mixed)ensure(JSON.stringify(shares)===JSON.stringify(mixed.shares),'個人項目與實際分攤金額不符');
+  return {title:label(e.title),amount:e.amount,payments,shares,date:day(e.date),category:e.category,voided:e.voided,splitMode,...(mixed?{equalMemberIds:mixed.equalMemberIds,personalItems:mixed.personalItems}:{})};
 }
 function changeValue(action,value,ids) {
   if(action==='edit-expense'||action==='void-expense')return expenseFields(value,ids);
@@ -175,8 +193,10 @@ export function mutateTrip(trip, action, input, receipt, actorId=null) {
   ensure(!next.archived||action==='set-archived','旅程已封存，請先解除封存再修改',409);
   if(action==='expense') {
     if(next.expenses.some(e=>e.id===id)) return trip;
-    ensure(['equal','exact'].includes(input.mode),'不支援的分攤方式');
-    const record={id,title:input.title,amount:minor(input.amount),payments:normalizePayments(input,new Set(next.members.map(m=>m.id))),shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares,date:input.date,category:input.category,voided:false,splitMode:input.mode,receipt,createdBy:actorId};
+    ensure(['equal','exact','mixed'].includes(input.mode),'不支援的分攤方式');
+    const ids=new Set(next.members.map(m=>m.id));
+    const mixed=input.mode==='mixed'?mixedSplit(input.amount,input.memberIds,input.personalItems,ids):null;
+    const record={id,title:input.title,amount:minor(input.amount),payments:normalizePayments(input,ids),shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):mixed?mixed.shares:input.shares,date:input.date,category:input.category,voided:false,splitMode:input.mode,...(mixed?{equalMemberIds:mixed.equalMemberIds,personalItems:mixed.personalItems}:{}),receipt,createdBy:actorId};
     ensureExpenseParticipantsActive(next,expenseFields(record,new Set(next.members.map(m=>m.id))));
     next.expenses.push(record);
   } else if(action==='repayment') {
@@ -195,6 +215,7 @@ export function mutateTrip(trip, action, input, receipt, actorId=null) {
       if(action==='void-expense'&&record.voided)return trip;
       ensure(!record.voided,'已作廢支出無法更正');before=expenseFields(record,ids);
       if(action==='edit-expense')ensureExpenseParticipantsActive(next,after,before);
+      delete record.equalMemberIds;delete record.personalItems;
       Object.assign(record,after);
     }else if(action==='rename-member'){
       const member=next.members.find(m=>m.id===id);ensure(member,'找不到這位旅伴',404);
@@ -230,8 +251,9 @@ export function mutateTrip(trip, action, input, receipt, actorId=null) {
 function desiredChange(trip,action,input) {
   const ids=new Set(trip.members.map(m=>m.id));
   if(action==='edit-expense'){
-    ensure(['equal','exact'].includes(input.mode),'不支援的分攤方式');
-    return expenseFields({...input,splitMode:input.mode,voided:false,shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):input.shares},ids);
+    ensure(['equal','exact','mixed'].includes(input.mode),'不支援的分攤方式');
+    const mixed=input.mode==='mixed'?mixedSplit(input.amount,input.memberIds,input.personalItems,ids):null;
+    return expenseFields({...input,splitMode:input.mode,voided:false,shares:input.mode==='equal'?evenShares(input.amount,input.memberIds):mixed?mixed.shares:input.shares,...(mixed?{equalMemberIds:mixed.equalMemberIds,personalItems:mixed.personalItems}:{})},ids);
   }
   if(action==='void-expense'){const e=trip.expenses.find(e=>e.id===input.id);ensure(e,'找不到這筆紀錄',404);return expenseFields({...e,voided:true},ids);}
   if(action==='add-participant')return memberSnapshot({id:input.id,name:input.name,active:true});
