@@ -226,6 +226,12 @@ footer { padding-top: 42px; color: #8e8e93; }
 [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-description"] { line-height: 1.45; }
 [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-close"] { top: 11px; right: 11px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: var(--muted); opacity: 1; }
 [data-slot="alert-dialog-content"].ledger-dialog { border-radius: 19px; }
+[data-slot="select-content"] { z-index: 60; width: min(var(--radix-select-trigger-width, 20rem), calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: min(var(--radix-select-content-available-height, 70dvh), calc(100dvh - 24px)); }
+
+@keyframes trip-tab-enter { from { opacity: .65; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.trip-tab-content { animation: trip-tab-enter .2s cubic-bezier(.2,.7,.2,1) both; }
+.page-nav a { transition: color .2s ease, background-color .2s ease, transform .2s cubic-bezier(.2,.7,.2,1); }
+.page-nav a svg { transition: transform .2s cubic-bezier(.2,.7,.2,1); }
 
 @media (max-width: 700px) {
   .topbar { height: calc(52px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 17px 0; }
@@ -307,6 +313,9 @@ footer { padding-top: 42px; color: #8e8e93; }
   [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-title"] { position: sticky; z-index: 2; top: -26px; margin: -26px -17px 0; padding: 25px 55px 13px 17px; background: rgba(255,255,255,.96); backdrop-filter: blur(15px); font-size: 21px; }
   [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-description"] { margin: 2px 0 20px; }
   [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-close"] { position: fixed; z-index: 4; top: calc(8px + env(safe-area-inset-top)); right: 8px; }
+  [data-slot="alert-dialog-content"].ledger-dialog { top: calc((100dvh + env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 2) !important; right: 12px !important; bottom: auto !important; left: 12px !important; width: auto !important; max-width: none !important; max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); margin: 0 !important; padding: 22px !important; translate: 0 -50% !important; overflow-y: auto; overscroll-behavior: contain; }
+  .page-nav a[aria-current="page"] svg { transform: translateY(-2px) scale(1.07); }
+  .page-nav a:active { transform: scale(.96); }
   [data-slot="dialog-content"].ledger-dialog .dialog-main-form > .primary:last-child,
   [data-slot="dialog-content"].ledger-dialog .dialog-main-form > fieldset > .primary:last-child { position: sticky; z-index: 3; bottom: -15px; width: 100%; min-height: 50px; margin-top: 5px; box-shadow: 0 0 0 10px var(--card); }
   footer { display: none; }
@@ -324,5 +333,6 @@ footer { padding-top: 42px; color: #8e8e93; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .primary, .secondary, .trip-card { transition: none; }
+  .primary, .secondary, .trip-card, .page-nav a, .page-nav a svg { transition: none; }
+  .trip-tab-content { animation: none; }
 }
