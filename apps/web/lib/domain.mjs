@@ -35,17 +35,38 @@ export function mixedSplit(amount, equalMemberIds, personalItems, ids) {
   for(const item of items)amounts.set(item.memberId,(amounts.get(item.memberId)??0)+item.amount);
   return {equalMemberIds:[...equalMemberIds],personalItems:items,shares:[...amounts].map(([memberId,amount])=>({memberId,amount}))};
 }
-export function balances(trip) {
-  const values = Object.fromEntries(trip.members.map(m => [m.id, 0]));
-  for (const e of trip.expenses.filter(e => !e.voided)) { for(const p of e.payments??[{memberId:e.payerId,amount:e.amount}])values[p.memberId]+=p.amount; for (const s of e.shares) values[s.memberId] -= s.amount; }
-  for (const r of trip.repayments.filter(r => !r.voided && (!r.status || r.status==='confirmed'))) { values[r.fromId] += r.amount; values[r.toId] -= r.amount; }
-  return values;
+// Positive balance is receivable: paid - share + confirmed sent - confirmed received.
+export function balanceBreakdown(trip) {
+  const detail=Object.fromEntries(trip.members.map(m=>[m.id,{paid:0,share:0,sent:0,received:0,balance:0}]));
+  for(const e of trip.expenses.filter(e=>!e.voided)) {
+    for(const p of e.payments??[{memberId:e.payerId,amount:e.amount}])detail[p.memberId].paid+=p.amount;
+    for(const s of e.shares)detail[s.memberId].share+=s.amount;
+  }
+  for(const r of trip.repayments.filter(r=>!r.voided&&(!r.status||r.status==='confirmed'))) {
+    detail[r.fromId].sent+=r.amount;
+    detail[r.toId].received+=r.amount;
+  }
+  for(const value of Object.values(detail))value.balance=value.paid-value.share+value.sent-value.received;
+  return detail;
 }
-export function suggestions(trip) {
+export function balances(trip) {
+  return Object.fromEntries(Object.entries(balanceBreakdown(trip)).map(([id,value])=>[id,value.balance]));
+}
+// Match debtors and creditors in saved member order; this is deterministic, not a global minimum-transfer search.
+export function settlementSteps(trip) {
   const b = balances(trip), debt = Object.entries(b).filter(([,v]) => v < 0).map(([id,v])=>({id,amount:-v})), credit = Object.entries(b).filter(([,v])=>v > 0).map(([id,v])=>({id,amount:v}));
   const result = []; let i=0,j=0;
-  while (i<debt.length && j<credit.length) { const amount=Math.min(debt[i].amount,credit[j].amount); result.push({fromId:debt[i].id,toId:credit[j].id,amount}); debt[i].amount-=amount;credit[j].amount-=amount;if(!debt[i].amount)i++;if(!credit[j].amount)j++; }
+  while (i<debt.length && j<credit.length) {
+    const fromBefore=debt[i].amount,toBefore=credit[j].amount,amount=Math.min(fromBefore,toBefore);
+    const fromAfter=fromBefore-amount,toAfter=toBefore-amount;
+    result.push({fromId:debt[i].id,toId:credit[j].id,amount,fromBefore,toBefore,fromAfter,toAfter});
+    debt[i].amount=fromAfter;credit[j].amount=toAfter;
+    if(!fromAfter)i++;if(!toAfter)j++;
+  }
   return result;
+}
+export function suggestions(trip) {
+  return settlementSteps(trip).map(({fromId,toId,amount})=>({fromId,toId,amount}));
 }
 function day(value) { ensure(typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10)===value, '日期無效'); return value; }
 function timestamp(value) { ensure(typeof value==='string' && !isNaN(Date.parse(value)), '時間無效'); return value; }

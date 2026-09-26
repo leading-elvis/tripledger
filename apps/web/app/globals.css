@@ -184,6 +184,24 @@ footer { padding-top: 42px; color: #8e8e93; }
 .settled { color: #16865e; }
 .repayment-entry { padding-bottom: 7px; }
 .repayment-row { padding: 14px 0; }
+.calculation-panel summary { display: flex; align-items: center; min-height: 44px; color: var(--primary); font-size: 16px; font-weight: 680; cursor: pointer; list-style: none; }
+.calculation-panel summary::-webkit-details-marker { display: none; }
+.calculation-panel summary::after { content: "⌄"; margin-left: auto; font-size: 24px; line-height: 1; transition: transform .18s ease; }
+.calculation-panel details[open] > summary::after { transform: rotate(180deg); }
+.calculation-panel summary:focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; border-radius: 6px; }
+.calculation-content { display: grid; gap: 22px; padding-top: 14px; font-size: 14px; line-height: 1.65; }
+.calculation-content > p, .calculation-content section > p { margin: 0; }
+.calculation-content > section { display: grid; gap: 12px; padding-top: 20px; border-top: 1px solid var(--border); min-width: 0; }
+.calculation-content h3 { margin: 0; font-size: 16px; }
+.calculation-expense, .calculation-member, .calculation-steps li { padding: 14px; border-radius: 14px; background: var(--muted); overflow-wrap: anywhere; }
+.calculation-expense .row, .calculation-member .row { align-items: flex-start; flex-wrap: wrap; }
+.calculation-expense .row b, .calculation-member .row b { font-variant-numeric: tabular-nums; }
+.calculation-expense p, .calculation-member p, .calculation-steps p { margin: 5px 0 0; }
+.calculation-mixed { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); }
+.calculation-repayment { padding: 9px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.calculation-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.calculation-steps li strong { display: block; color: var(--foreground); }
+@media(max-width:700px) { .calculation-content { gap: 18px; } .calculation-expense, .calculation-member, .calculation-steps li { padding: 12px; } }
 
 /* Forms and settings use the same rhythm as grouped iOS controls. */
 .field { gap: 6px; color: #515158; font-size: 13px; font-weight: 630; }
