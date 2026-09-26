@@ -1,0 +1,11 @@
+export type Member = { id: string; name: string; active: boolean };
+export type Receipt = { id: string; mime: string; size: number; sha256: string };
+export type Expense = { id: string; title: string; amount: number; payments: {memberId:string;amount:number}[]; shares: {memberId:string;amount:number}[]; date: string; category: string; voided: boolean; splitMode?: 'equal'|'exact'|'mixed'; equalMemberIds?:string[]; personalItems?:{name:string;memberId:string;amount:number}[]; receipt?: Receipt; createdBy:string|null };
+export type ExpenseSnapshot = Omit<Expense,'id'|'receipt'|'createdBy'>;
+export type HistoryEntry = {id:string;at:string;targetId:string;actorId:string|null} & ({action:'edit-expense'|'void-expense';before:ExpenseSnapshot;after:ExpenseSnapshot}|{action:'rename-trip'|'rename-member';before:string;after:string}|{action:'add-participant';before:null;after:Member}|{action:'remove-participant'|'restore-participant';before:Member;after:Member}|{action:'set-archived';before:boolean;after:boolean});
+export type Repayment = { id: string; fromId: string; toId: string; amount: number; date: string; voided: boolean;status:'pending'|'confirmed'|'cancelled'|'rejected';initialStatus:'pending'|'confirmed';createdBy:string|null;events:{id:string;action:'confirm'|'cancel'|'reject'|'void';actorId:string|null;at:string;proxy:boolean}[] };
+export type TeamActor = {id:string;name:string;role:'admin'|'editor'|'viewer';participantId:string|null;active:boolean};
+export type JoinRequest = {id:string;name:string;email:string;createdAt:string};
+export type MyAccess = {role:'admin'|'editor'|'viewer';actorId:string|null;participantId:string|null;isOwner:boolean};
+export type Trip = { id: string; name: string; currency: string; revision: number; archived:boolean;history:HistoryEntry[]; members: Member[]; expenses: Expense[]; repayments: Repayment[]; createdAt: string; updatedAt: string;
+  team:{enabled:boolean;actors:TeamActor[];events:{id:string;action:string;actorId:string|null;targetId:string;at:string;detail:string}[]};me:MyAccess;teamMembers:(TeamActor&{connected:boolean;isOwner:boolean})[];invitations?:{id:string;expiresAt:string;revoked:boolean;used:boolean}[];joinRequests?:JoinRequest[]};
