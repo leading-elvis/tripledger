@@ -20,7 +20,7 @@ const storage=openStorage(process.env.DATA_DIR??fileURLToPath(new URL('../.data'
 const assets=fileURLToPath(new URL('../dist-standalone',import.meta.url));
 if(!existsSync(resolve(assets,'index.html')))throw new Error('Build standalone UI first. See SELF_HOSTING.md.');
 const sessions=new Map(),attempts=new Map();
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.woff2':'font/woff2'};
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.woff2':'font/woff2','.webmanifest':'application/manifest+json'};
 const cookie=value=>`tripledger_session=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure?'; Secure':''}`;
 async function readBody(req,max=LIMITS.bodyBytes){const chunks=[];let length=0;for await(const chunk of req){length+=chunk.length;if(length>max)throw new Error('Request too large');chunks.push(chunk);}return Buffer.concat(chunks);}
 const server=createServer(async(req,res)=>{

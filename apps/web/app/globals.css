@@ -276,6 +276,7 @@ footer { padding-top: 42px; color: #8e8e93; }
 .trip-tab-content { animation: trip-tab-enter .2s cubic-bezier(.2,.7,.2,1) both; }
 .page-nav a { transition: color .2s ease, background-color .2s ease, transform .2s cubic-bezier(.2,.7,.2,1); }
 .page-nav a svg { transition: transform .2s cubic-bezier(.2,.7,.2,1); }
+.mobile-trip-back, .mobile-topbar-title, .mobile-manage, .mobile-screen-title { display: none; }
 
 @media (max-width: 700px) {
   .topbar { height: calc(52px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 17px 0; }
@@ -355,11 +356,11 @@ footer { padding-top: 42px; color: #8e8e93; }
   .member-settings-add, .member-settings-edit, .member-settings-row { display: flex; flex-direction: column; align-items: stretch; }
   .member-settings-add > .primary, .member-settings-edit > .secondary, .member-settings-row > .secondary { width: 100%; }
   .member-settings-row { gap: 8px; }
-  [data-slot="dialog-content"].ledger-dialog { top: env(safe-area-inset-top) !important; bottom: 0 !important; left: 0 !important; right: 0 !important; width: 100vw !important; max-width: 100vw !important; height: calc(100dvh - env(safe-area-inset-top)) !important; max-height: none !important; translate: none !important; transform: none !important; display: block; padding: 26px 17px calc(26px + env(safe-area-inset-bottom)) !important; border: 0; border-radius: 23px 23px 0 0; overflow-y: auto; overscroll-behavior: contain; }
+  [data-slot="dialog-content"].ledger-dialog { top: calc(var(--trip-visual-top,0px) + env(safe-area-inset-top)) !important; bottom: auto !important; left: 0 !important; right: 0 !important; width: 100vw !important; max-width: 100vw !important; height: calc(var(--trip-visual-height,100dvh) - env(safe-area-inset-top)) !important; max-height: none !important; translate: 0 0; transform: none; display: block; padding: 26px 17px calc(26px + env(safe-area-inset-bottom)) !important; border: 0; border-radius: 23px 23px 0 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
   [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-title"] { position: sticky; z-index: 2; top: -26px; margin: -26px -17px 0; padding: 25px 55px 13px 17px; background: rgba(255,255,255,.96); backdrop-filter: blur(15px); font-size: 21px; }
   [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-description"] { margin: 2px 0 20px; }
-  [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-close"] { position: fixed; z-index: 4; top: calc(8px + env(safe-area-inset-top)); right: 8px; }
-  [data-slot="alert-dialog-content"].ledger-dialog { top: calc((100dvh + env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 2) !important; right: 12px !important; bottom: auto !important; left: 12px !important; width: auto !important; max-width: none !important; max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); margin: 0 !important; padding: 22px !important; translate: 0 -50% !important; overflow-y: auto; overscroll-behavior: contain; }
+  [data-slot="dialog-content"].ledger-dialog [data-slot="dialog-close"] { position: fixed; z-index: 4; top: calc(var(--trip-visual-top,0px) + 8px + env(safe-area-inset-top)); right: 8px; }
+  [data-slot="alert-dialog-content"].ledger-dialog { top: var(--trip-visual-middle,50dvh) !important; right: 12px !important; bottom: auto !important; left: 12px !important; width: auto !important; max-width: none !important; max-height: calc(var(--trip-visual-height,100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); margin: 0 !important; padding: 22px !important; translate: 0 -50% !important; overflow-y: auto; overscroll-behavior: contain; }
   .page-nav a[aria-current="page"] svg { transform: translateY(-2px) scale(1.07); }
   .page-nav a:active { transform: scale(.96); }
   [data-slot="dialog-content"].ledger-dialog .dialog-main-form > .primary:last-child,
@@ -377,8 +378,62 @@ footer { padding-top: 42px; color: #8e8e93; }
   .payer-row > .icon-button { grid-column: 2; grid-row: 2; }
 }
 
+/* On a phone, the trip name belongs in the navigation bar and the ledger begins in the first viewport. */
+@keyframes mobile-sheet-enter { from { opacity: .82; translate: 0 24px; } to { opacity: 1; translate: 0 0; } }
+@keyframes mobile-sheet-exit { from { opacity: 1; translate: 0 0; } to { opacity: 0; translate: 0 24px; } }
+@media (max-width: 700px) {
+  .trip-screen .topbar { display: grid; grid-template-columns: 73px minmax(0,1fr) 88px; gap: 3px; height: calc(49px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 8px 0; background: rgba(249,249,251,.96); }
+  .trip-screen .topbar .brand, .trip-screen .topbar .pill { display: none; }
+  .trip-screen .mobile-trip-back { display: inline-flex; align-items: center; gap: 1px; min-height: 44px; color: var(--primary); font-size: 15px; font-weight: 630; text-decoration: none; }
+  .trip-screen .mobile-topbar-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 15px; font-weight: 700; }
+  .trip-screen .topbar .row { justify-content: flex-end; gap: 0; }
+  .trip-screen .topbar .icon-button { min-width: 40px; width: 40px; min-height: 44px; }
+  .trip-screen .mobile-manage { display: inline-grid; }
+  .trip-screen .workspace { padding-top: 14px; }
+  .trip-screen .back-link, .trip-screen .trip-page-tools, .trip-screen .page-heading .eyebrow, .trip-screen .desktop-trip-title { display: none; }
+  .trip-screen .mobile-screen-title { display: inline; }
+  .trip-screen .page-heading { align-items: center; gap: 10px; margin-bottom: 13px; }
+  .trip-screen .page-heading h1 { margin-bottom: 3px; font-size: 29px; }
+  .trip-screen .page-heading p.muted { font-size: 12px; }
+  .trip-screen .page-heading > .page-action { margin: 0; width: 46px !important; height: 46px; border-radius: 15px; }
+  .trip-screen .summary-grid { gap: 8px; margin-bottom: 11px; }
+  .trip-screen .summary-card { min-height: 77px; padding: 11px 13px; border-radius: 15px; box-shadow: 0 2px 9px rgba(18,29,47,.045); }
+  .trip-screen .summary-card > span:first-child { font-size: 12px; font-weight: 650; }
+  .trip-screen .summary-card:not(.hero-card) > span:last-child { display: none; }
+  .trip-screen .summary-card:not(.hero-card) strong { font-size: clamp(18px,5vw,22px) !important; }
+  .trip-screen .hero-card { min-height: 101px; padding: 13px 16px; background: linear-gradient(120deg,#087fff,#0766cb); }
+  .trip-screen .hero-card strong { font-size: clamp(26px,7vw,31px); }
+  .trip-screen .hero-foot { font-size: 12px; }
+  .trip-screen .hero-foot svg { width: 16px; }
+  .trip-screen .expense-panel { padding: 15px 16px 5px; }
+  .expense-panel .section-head { margin-bottom: 8px; }
+  .expense-panel .section-head h2 { font-size: 18px; }
+  .expense-panel .section-head > .small { font-size: 12px; }
+  .expense-panel .expense-toolbar { margin-bottom: 2px; }
+  .expense-panel .expense-toolbar > .field { font-size: 0; gap: 0; }
+  .expense-panel .expense-toolbar input { min-height: 42px; font-size: 16px; }
+  .expense-panel .expense-toolbar > .secondary { min-height: 42px; }
+  .expense-panel .expense-row { padding: 15px 0; }
+  .expense-panel .expense-info p { font-size: 12px; line-height: 1.45; }
+  .expense-panel .expense-info summary { min-height: 40px; display: inline-flex; align-items: center; font-size: 13px; }
+  .page-nav a { font-size: 12px; min-height: 56px; }
+  .page-nav a svg { width: 22px; height: 22px; }
+  [data-slot="dialog-content"].ledger-dialog[data-state="open"] { animation: mobile-sheet-enter .24s cubic-bezier(.2,.75,.2,1) both; }
+  [data-slot="dialog-content"].ledger-dialog[data-state="closed"] { animation: mobile-sheet-exit .18s ease-in both; }
+}
+
+@media (max-width: 370px) {
+  .trip-screen .topbar { grid-template-columns: 64px minmax(0,1fr) 80px; }
+  .trip-screen .mobile-trip-back, .trip-screen .mobile-topbar-title { font-size: 14px; }
+  .trip-screen .topbar .icon-button { min-width: 38px; width: 38px; }
+  .trip-screen .summary-card { padding: 10px; }
+  .trip-screen .hero-card { padding: 12px 14px; }
+  .page-nav a { font-size: 12px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .primary, .secondary, .trip-card, .page-nav a, .page-nav a svg { transition: none; }
   .trip-tab-content { animation: none; }
+  [data-slot="dialog-content"].ledger-dialog[data-state] { animation: none; }
 }

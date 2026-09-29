@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import LedgerShell from "./ledger-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -7,7 +8,9 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
+    apple: "/apple-touch-icon.png",
   },
+  manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "TripLedger", statusBarStyle: "default" },
 };
 
@@ -25,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-Hant">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased"><LedgerShell/>{children}</body>
     </html>
   );
 }

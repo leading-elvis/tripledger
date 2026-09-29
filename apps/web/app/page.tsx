@@ -1,2 +1,1 @@
-import LedgerApp from "./ledger-app";
-export default function Page() { return <LedgerApp />; }
+export default function Page() { return null; }

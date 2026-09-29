@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, WalletCards, ArrowUpRight, ReceiptText, UsersRound, HandCoins, Archive, Download, Upload, ChevronLeft, RefreshCw, LogIn } from "lucide-react";
+import { Plus, WalletCards, ArrowUpRight, ReceiptText, UsersRound, HandCoins, Archive, Download, Upload, ChevronLeft, RefreshCw, LogIn, Settings2 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
@@ -32,21 +32,43 @@ export default function LedgerApp({route:initialRoute={kind:'home'}}:{route?:Ret
   const [backupView,setBackupView]=useState<{filename:string;text:string}|null>(null);
   const [joining,setJoining]=useState(false),[incomingInvite,setIncomingInvite]=useState(''),[inviteLinks,setInviteLinks]=useState<Record<string,string>>({}),[requests,setRequests]=useState<{id:string;tripName:string;status:string}[]>([]);
   const [returnTo,setReturnTo]=useState(route.kind==='trip'?tripHref(route.tripId,tab):route.kind==='join'?'/join':'/');
-  useEffect(()=>{setReturnTo(window.location.pathname+window.location.search+window.location.hash);const token=new URLSearchParams(window.location.hash.slice(1)).get('join');if(token){setIncomingInvite(token);if(route.kind!=='join')setJoining(true);}const scope=new URLSearchParams(window.location.search).get('scope');if(scope&&['active','archived','all'].includes(scope))setTripScope(scope);},[route.kind]);
   const [editing,setEditing]=useState<Expense|null>(null),[managing,setManaging]=useState(false),[settingsDirty,setSettingsDirty]=useState(false),[discardSettings,setDiscardSettings]=useState(false),[tripScope,setTripScope]=useState("active"),[actionError,setActionError]=useState(""),[offline,setOffline]=useState(false);
   useEffect(()=>{const update=()=>setOffline(!navigator.onLine);update();window.addEventListener("online",update);window.addEventListener("offline",update);return()=>{window.removeEventListener("online",update);window.removeEventListener("offline",update);};},[]);
+  useEffect(()=>{
+    const viewport=window.visualViewport;
+    const update=()=>{
+      document.documentElement.style.setProperty('--trip-visual-height',`${viewport?.height??window.innerHeight}px`);
+      document.documentElement.style.setProperty('--trip-visual-top',`${viewport?.offsetTop??0}px`);
+      document.documentElement.style.setProperty('--trip-visual-middle',`${(viewport?.offsetTop??0)+(viewport?.height??window.innerHeight)/2}px`);
+    };
+    update();viewport?.addEventListener('resize',update);viewport?.addEventListener('scroll',update);window.addEventListener('resize',update);
+    return()=>{viewport?.removeEventListener('resize',update);viewport?.removeEventListener('scroll',update);window.removeEventListener('resize',update);document.documentElement.style.removeProperty('--trip-visual-height');document.documentElement.style.removeProperty('--trip-visual-top');document.documentElement.style.removeProperty('--trip-visual-middle');};
+  },[]);
   const [formTripSnapshot,setFormTripSnapshot]=useState<Trip|null>(null);
   const formTrip=trips.find(t=>t.id===formTripSnapshot?.id)??(formTripSnapshot?{...formTripSnapshot,me:{...formTripSnapshot.me,role:'viewer' as const}}:null);
   const captureTrip=()=>{setActionError("");setFormTripSnapshot(currentRef.current??null);};
   const current=route.kind==='trip'?trips.find(t=>t.id===route.tripId):undefined, currentRef=useRef<Trip|undefined>(current);currentRef.current=current;
   const allowLeave=useRef(false),[leaveTo,setLeaveTo]=useState(''),[teamDirty,setTeamDirty]=useState(false),[joinDirty,setJoinDirty]=useState(false),[joinDone,setJoinDone]=useState(false);
+  useEffect(()=>{
+    setReturnTo(window.location.pathname+window.location.search+window.location.hash);
+    const token=new URLSearchParams(window.location.hash.slice(1)).get('join');
+    if(route.kind==='join'){
+      // A new visit to the join page must show the form after a prior invite succeeded.
+      setJoinDone(false);
+      setIncomingInvite(token??'');
+    }else if(token){setIncomingInvite(token);setJoining(true);}
+    if(route.kind==='home'){
+      const scope=new URLSearchParams(window.location.search).get('scope');
+      setTripScope(scope&&['active','archived','all'].includes(scope)?scope:'active');
+    }
+  },[route.kind,route.tripId,route.section]);
   const hasDraft=creating||adding||importing||!!repaying||!!editing||managing||teamDirty||joinDirty||(joining&&!auth);
   useEffect(()=>{const protect=(event:BeforeUnloadEvent)=>{if((hasDraft||busy)&&!allowLeave.current){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',protect);return()=>window.removeEventListener('beforeunload',protect);},[hasDraft,busy]);
   const navigationRef=useRef({route,hasDraft,busy});navigationRef.current={route,hasDraft,busy};
   const historyIndex=useRef(0),restoringHistory=useRef(false),allowNextPop=useRef(false),pendingPopDelta=useRef<number|null>(null);
-  const changeTab=(href:string)=>{
+  const changeRoute=(href:string)=>{
     const url=new URL(href,window.location.href),nextRoute=parseRoute(url.pathname);
-    if(url.origin!==window.location.origin||nextRoute.kind!=='trip'||navigationRef.current.route.kind!=='trip'||nextRoute.tripId!==navigationRef.current.route.tripId)return false;
+    if(url.origin!==window.location.origin||nextRoute.kind==='missing')return false;
     if(url.pathname===window.location.pathname&&url.search===window.location.search&&url.hash===window.location.hash)return true;
     window.history.pushState({...window.history.state,__tripLedgerIndex:++historyIndex.current},'',url.pathname+url.search+url.hash);
     setRoute(nextRoute);
@@ -87,7 +109,7 @@ export default function LedgerApp({route:initialRoute={kind:'home'}}:{route?:Ret
   const navigate=(href:string)=>{
     discardDrafts();
     if(pendingPopDelta.current!==null){const delta=pendingPopDelta.current;pendingPopDelta.current=null;setLeaveTo('');allowNextPop.current=true;window.history.go(delta);return;}
-    if(changeTab(href)){setLeaveTo('');return;}
+    if(changeRoute(href)){setLeaveTo('');return;}
     allowLeave.current=true;window.location.assign(href);
   };
   const setScope=(scope:string)=>{setTripScope(scope);const url=new URL(window.location.href);url.searchParams.set('scope',scope);window.history.replaceState(window.history.state,'',url.pathname+url.search+url.hash);};
@@ -116,12 +138,12 @@ export default function LedgerApp({route:initialRoute={kind:'home'}}:{route?:Ret
   const admin=current?.me.role==='admin',canWrite=!!current&&current.me.role!=='viewer'&&!current.archived;
   const teamAction=(action:string,data:unknown)=>run(async()=>{if(!current)return;const result=await api(`trips/${current.id}/${action}`,{revision:current.revision,...data as object});if(result.left){await sync();navigate('/');return;}changed(result.trip);if(result.invitationToken)setInviteLinks(old=>({...old,[current.id]:`${window.location.origin}/join#join=${result.invitationToken}`}));if(action==='revoke-invite')setInviteLinks(old=>({...old,[current.id]:''}));toast.success('成員設定已更新');});
   const join=async(token:string)=>run(async()=>{const result=await api('join',{id:crypto.randomUUID(),token});setJoining(false);setIncomingInvite('');setJoinDirty(false);setJoinDone(true);window.history.replaceState(window.history.state,'',window.location.pathname+window.location.search);await sync();toast.success(result.request?.status==='pending'?'申請已送出，請等待管理者核准':'此邀請已處理');});
-  return <div className="app-shell" onClickCapture={event=>{const anchor=(event.target as Element).closest('a');if(!anchor||anchor.target&&anchor.target!=='_self'||anchor.hasAttribute('download')||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;const url=new URL(anchor.href);if(url.origin!==window.location.origin||url.pathname.startsWith('/api/'))return;const nextRoute=parseRoute(url.pathname),sameTripTab=route.kind==='trip'&&nextRoute.kind==='trip'&&nextRoute.tripId===route.tripId;if(sameTripTab&&url.href===window.location.href){event.preventDefault();return;}if(busy){event.preventDefault();toast.info('正在儲存，請稍候再切換頁面');}else if(hasDraft){event.preventDefault();pendingPopDelta.current=null;setLeaveTo(anchor.href);}else if(sameTripTab){event.preventDefault();changeTab(anchor.href);}}}>
+  return <div className={`app-shell${current?' trip-screen':''}`} onClickCapture={event=>{const anchor=(event.target as Element).closest('a');if(!anchor||anchor.target&&anchor.target!=='_self'||anchor.hasAttribute('download')||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;const url=new URL(anchor.href);if(url.origin!==window.location.origin||url.pathname.startsWith('/api/'))return;const nextRoute=parseRoute(url.pathname),internal=nextRoute.kind!=='missing';if(internal&&url.href===window.location.href){event.preventDefault();return;}if(busy){event.preventDefault();toast.info('正在儲存，請稍候再切換頁面');}else if(hasDraft){event.preventDefault();pendingPopDelta.current=null;setLeaveTo(anchor.href);}else if(internal){event.preventDefault();changeRoute(anchor.href);}}}>
     <Toaster position="top-center" richColors/>
-    <header className="topbar"><a className="brand" href="/"><span className="brand-icon"><WalletCards size={23}/></span><span>TripLedger<small>旅伴帳本</small></span></a><div className="row"><span className="pill">{mode==="standalone"?"自主託管":"內部測試"}</span>{!auth&&!loading&&<button className="icon-button" aria-label="重新整理帳目" onClick={()=>void sync()}><RefreshCw size={18}/></button>}</div></header>
+    <header className="topbar"><a className="mobile-trip-back" href="/"><ChevronLeft size={21}/>旅程</a><a className="brand" href="/"><span className="brand-icon"><WalletCards size={23}/></span><span>TripLedger<small>旅伴帳本</small></span></a>{current&&<span className="mobile-topbar-title">{current.name}</span>}<div className="row"><span className="pill">{mode==="standalone"?"自主託管":"內部測試"}</span>{!auth&&!loading&&<button className="icon-button" aria-label="重新整理帳目" onClick={()=>void sync()}><RefreshCw size={18}/></button>}{admin&&<button className="icon-button mobile-manage" aria-label="管理旅程" onClick={()=>{captureTrip();setSettingsDirty(false);setManaging(true);}}><Settings2 size={19}/></button>}</div></header>
     <main className="workspace">
       {route.kind!=='home'&&<a className="back-link" href="/"><ChevronLeft size={20}/>所有旅程</a>}
-      <div className="page-heading"><div><p className="eyebrow">{route.kind==='home'?'我的帳本':current?sections[tab as keyof typeof sections]:'TripLedger'}</p><h1>{current?.name??(route.kind==='home'?'我的旅程':route.kind==='join'?'加入共同帳本':loading?'正在開啟帳本…':'無法開啟帳本')}</h1><p className="muted">{current?`${current.members.filter(member=>member.active).length} 位使用中旅伴 · ${current.currency} · ${roles[current.me.role]}${current.team.enabled?" · 共同記帳":""}`:route.kind==='home'?'選一段旅程，繼續記錄共同支出。':route.kind==='join'?'貼上邀請連結，申請與旅伴一起記帳。':''}</p></div>{!auth&&(current||route.kind==='home')&&<button className="primary page-action" aria-label={current?'新增支出':'建立旅程'} onClick={()=>{captureTrip();current?setAdding(true):setCreating(true);}} disabled={loading||!!current&&!canWrite||busy}><Plus size={19}/><span>{current?"新增支出":"建立旅程"}</span></button>}</div>
+      <div className="page-heading"><div><p className="eyebrow">{route.kind==='home'?'我的帳本':current?sections[tab as keyof typeof sections]:'TripLedger'}</p><h1>{current?<><span className="desktop-trip-title">{current.name}</span><span className="mobile-screen-title">{sections[tab as keyof typeof sections]}</span></>:(route.kind==='home'?'我的旅程':route.kind==='join'?'加入共同帳本':loading?'正在開啟帳本…':'無法開啟帳本')}</h1><p className="muted">{current?`${current.members.filter(member=>member.active).length} 位使用中旅伴 · ${current.currency} · ${roles[current.me.role]}${current.team.enabled?" · 共同記帳":""}`:route.kind==='home'?'選一段旅程，繼續記錄共同支出。':route.kind==='join'?'貼上邀請連結，申請與旅伴一起記帳。':''}</p></div>{!auth&&(current||route.kind==='home')&&<button className="primary page-action" aria-label={current?'新增支出':'建立旅程'} onClick={()=>{captureTrip();current?setAdding(true):setCreating(true);}} disabled={loading||!!current&&!canWrite||busy}><Plus size={19}/><span>{current?"新增支出":"建立旅程"}</span></button>}</div>
       {offline&&<p className="notice" role="status">目前離線，表單可繼續填寫；恢復連線後請再儲存。尚未送出的內容不會自動同步。</p>}
       {current?.archived&&<div className="notice"><span>此旅程已封存，帳務目前唯讀。</span>{admin&&<button className="secondary" onClick={()=>{captureTrip();setSettingsDirty(false);setManaging(true);}}>管理／解除封存</button>}</div>}
       {error&&<div className="error" role="alert">{error}<button className="secondary" onClick={()=>void sync()}>重試</button></div>}
@@ -129,7 +151,7 @@ export default function LedgerApp({route:initialRoute={kind:'home'}}:{route?:Ret
       <div className="trip-page-tools"><span className="small muted">每 15 秒更新 · 已儲存的帳務會同步給成員</span>{admin&&<button className="secondary" onClick={()=>{captureTrip();setSettingsDirty(false);setManaging(true);}}>管理旅程</button>}</div>
       <nav className="page-nav" aria-label="帳本頁面">{Object.entries(sections).map(([section,label])=><a key={section} href={tripHref(current.id,section)} aria-current={tab===section?'page':undefined}>{section==='expenses'?<ReceiptText size={19}/>:section==='balances'?<HandCoins size={19}/>:section==='team'?<UsersRound size={19}/>:<Archive size={19}/>}<span className="nav-full">{label}</span><span className="nav-short">{({expenses:'支出',balances:'分攤',team:'成員',backup:'備份'} as Record<string,string>)[section]}</span></a>)}</nav>
       <div className="trip-tab-content" key={`${current.id}:${tab}`} role="region" aria-label={sections[tab as keyof typeof sections]}>
-      {tab==='expenses'&&<><div className="summary-grid"><section className="summary-card hero-card"><span>旅程總支出</span><strong>{money(total)}</strong><span className="hero-foot">{current.expenses.filter(e=>!e.voided).length} 筆共同支出<ArrowUpRight size={20}/></span></section><section className="summary-card"><span className="muted">使用中旅伴</span><strong>{current.members.filter(m=>m.active).length} <small>位</small></strong><span className="muted">{current.members.filter(m=>m.active).map(m=>m.name).join('、')}{current.members.some(m=>!m.active)?` · 已移除 ${current.members.filter(m=>!m.active).length} 位`:''}</span></section><section className="summary-card"><span className="muted">尚待結清</span><strong>{money(owed)}</strong><span className="muted">只扣除已確認還款</span></section></div><section className="panel">{!expenses.length?<Blank icon={<ReceiptText size={30}/>} title="這段旅程還沒有支出" description="住宿、車票或晚餐，都可以在這裡記錄。">{canWrite&&<button className="primary" onClick={()=>{captureTrip();setAdding(true);}}>記一筆支出</button>}</Blank>:<ExpenseList key={current.id} trip={current} busy={busy} onEdit={e=>{captureTrip();setEditing(e);}} onVoid={e=>{captureTrip();setVoiding({action:'void-expense',id:e.id,title:e.title});}}/>}</section></>}
+      {tab==='expenses'&&<><div className="summary-grid trip-summary"><section className="summary-card hero-card"><span>旅程總支出</span><strong>{money(total)}</strong><span className="hero-foot">{current.expenses.filter(e=>!e.voided).length} 筆共同支出<ArrowUpRight size={20}/></span></section><section className="summary-card"><span className="muted">使用中旅伴</span><strong>{current.members.filter(m=>m.active).length} <small>位</small></strong><span className="muted">{current.members.filter(m=>m.active).map(m=>m.name).join('、')}{current.members.some(m=>!m.active)?` · 已移除 ${current.members.filter(m=>!m.active).length} 位`:''}</span></section><section className="summary-card"><span className="muted">尚待結清</span><strong>{money(owed)}</strong><span className="muted">只扣除已確認還款</span></section></div><section className="panel expense-panel">{!expenses.length?<Blank icon={<ReceiptText size={30}/>} title="這段旅程還沒有支出" description="住宿、車票或晚餐，都可以在這裡記錄。">{canWrite&&<button className="primary" onClick={()=>{captureTrip();setAdding(true);}}>記一筆支出</button>}</Blank>:<ExpenseList key={current.id} trip={current} busy={busy} onEdit={e=>{captureTrip();setEditing(e);}} onVoid={e=>{captureTrip();setVoiding({action:'void-expense',id:e.id,title:e.title});}}/>}</section></>}
       {tab==='balances'&&<RepaymentPanel trip={current} busy={busy} onCreate={r=>{captureTrip();setRepaying(r);}} onVoid={r=>{captureTrip();setVoiding({action:'void-repayment',id:r.id,title:'這筆已確認還款'});}} onAction={(action,data)=>void run(async()=>{await mutate(action,data,current);toast.success('還款處理已儲存');})}/>}
       {tab==='team'&&<TeamPanel key={current.id} trip={current} mode={mode} busy={busy} inviteLink={inviteLinks[current.id]??''} send={teamAction} onDirtyChange={setTeamDirty}/>}
       {tab==='backup'&&<section className="panel backup-panel"><div><span className="empty-icon"><Archive size={28}/></span><h2>你的帳目，隨時帶走。</h2><p className="muted">下載目前旅程的完整備份，包含旅伴、支出、分攤、還款，以及實際儲存的收據圖片與操作歷史。</p><p className="small muted">每個旅程分別備份；可還原到 Sites 或自架版本。匯入不會覆蓋現有資料，原成員須重新邀請。只有管理者能匯出完整備份。</p><div className="backup-actions"><button className="primary" disabled={!admin||busy} onClick={()=>void download()}><Download size={18}/>下載此旅程備份</button><button className="secondary" disabled={!admin||busy} onClick={()=>void viewBackup()}>檢視完整備份</button><button className="secondary" onClick={()=>setImporting(true)} disabled={busy}><Upload size={18}/>匯入備份</button></div></div><aside><h3>備份範圍</h3><ul><li>每個旅程使用一種幣別</li><li>最多 20 位使用中旅伴，已移除旅伴的舊帳仍保留</li><li>最多 300 筆支出、200 筆還款</li><li>收據每張 1 MB，旅程合計 8 MB</li></ul><p>備份內含完整帳務與收據，請保存在自己的安全位置。</p></aside></section>}
