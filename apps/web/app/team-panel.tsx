@@ -25,7 +25,11 @@ function InviteSettings({trip,busy,send,report}:{trip:Trip;busy:boolean;send:Sen
       <label><input type="radio" name="invite-use" checked={!reusable} onChange={()=>{edit();setReusable(false);}}/><span><b>單次使用</b><small>供一個帳號申請</small></span></label>
       <label><input type="radio" name="invite-use" checked={reusable} onChange={()=>{edit();setReusable(true);}}/><span><b>可多次使用</b><small>多位旅伴共用連結</small></span></label>
     </fieldset>
-    <label className="field">到期日期與時間<input type="datetime-local" required value={expiresAt} disabled={busy||trip.archived} onChange={e=>{edit();setExpiresAt(e.target.value);}} aria-invalid={!!error} aria-describedby="invite-expiry-hint invite-settings-error"/><small id="invite-expiry-hint">預設 7 天後到期，可自行調整。依你的裝置時區（{Intl.DateTimeFormat().resolvedOptions().timeZone}）設定。</small></label>
+    <div className="form-row invite-expiry-fields">
+      <label className="field">到期日期<input type="date" required value={expiresAt.split('T')[0]} disabled={busy||trip.archived} onChange={e=>{edit();setExpiresAt(`${e.target.value}T${expiresAt.split('T')[1]}`);}} aria-invalid={!!error} aria-describedby="invite-expiry-hint invite-settings-error"/></label>
+      <label className="field">到期時間<input type="time" required value={expiresAt.split('T')[1]} disabled={busy||trip.archived} onChange={e=>{edit();setExpiresAt(`${expiresAt.split('T')[0]}T${e.target.value}`);}} aria-invalid={!!error} aria-describedby="invite-expiry-hint invite-settings-error"/></label>
+    </div>
+    <p id="invite-expiry-hint" className="small muted">預設 7 天後到期，可自行調整。依你的裝置時區（{Intl.DateTimeFormat().resolvedOptions().timeZone}）設定。</p>
     <p id="invite-settings-error" className={error?'error':'sr-only'} role={error?'alert':undefined}>{error}</p>
     <button className="primary" disabled={busy||trip.archived}>{busy?'正在處理…':'建立邀請連結'}</button>
   </form>;

@@ -251,7 +251,9 @@ footer { padding-top: 42px; color: #8e8e93; }
 .team-card { margin: 9px 0; padding: 17px; border: 1px solid var(--border); border-radius: 15px; background: var(--card); gap: 11px; }
 .team-invite { padding: 18px; border-radius: 16px; background: var(--muted); }
 .invite-settings { width: 100%; max-width: 560px; }
-.invite-settings input[type="datetime-local"] { width: 100%; min-width: 0; max-width: 100%; }
+.invite-expiry-fields { width: 100%; }
+.invite-expiry-fields .field { min-width: 0; }
+.invite-expiry-fields input { width: 100%; min-width: 0; max-width: 100%; }
 .invite-use-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; border: 0; padding: 0; min-width: 0; }
 .invite-use-options legend { margin-bottom: 7px; color: #515158; font-size: 13px; font-weight: 630; }
 .invite-use-options label { display: flex; align-items: center; gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); cursor: pointer; }
@@ -263,6 +265,7 @@ footer { padding-top: 42px; color: #8e8e93; }
 .invite-entry { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; width: 100%; padding: 12px 0; border-top: 1px solid var(--border); }
 .invite-entry span { flex: 1 1 180px; line-height: 1.6; }
 .invite-entry .secondary { flex: none; }
+@media(max-width:380px) { .invite-use-options { grid-template-columns: 1fr; } }
 .team-section { margin: 24px 0 0; }
 .team-section h3, .team-invite h3 { font-size: 16px; }
 .team-card .row { gap: 9px; }
