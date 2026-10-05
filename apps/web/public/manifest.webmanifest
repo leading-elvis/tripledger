@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "TripLedger 旅伴帳本",
+  "short_name": "TripLedger",
+  "description": "記錄旅程支出、分攤與還款。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f2f2f7",
+  "theme_color": "#f2f2f7",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

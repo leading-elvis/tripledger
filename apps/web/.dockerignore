@@ -1,0 +1,12 @@
+node_modules
+.git
+.env*
+.data
+.test-output
+.sites-runtime
+.wrangler
+dist
+dist-standalone
+outputs
+work
+standalone-data
