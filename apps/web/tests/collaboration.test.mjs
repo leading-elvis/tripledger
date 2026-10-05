@@ -15,7 +15,7 @@ async function fixture(t) {
   let trip=(await call('A','trips',{id:crypto.randomUUID(),name:'多人合成驗收',currency:'TWD',members:['甲','乙','丙']})).value.trip;
   const get=async(who='A')=>(await call(who,'state')).value.trips.find(x=>x.id===trip.id);
   const act=async(who,action,data={})=>{const current=await get(who);return call(who,`trips/${trip.id}/${action}`,{id:trip.id,revision:current?.revision,...data});};
-  const invite=async()=>{const r=await act('A','create-invite',{id:crypto.randomUUID()});assert.equal(r.status,200,JSON.stringify(r.value));trip=r.value.trip;return r.value.invitationToken;};
+  const invite=async(options={})=>{const r=await act('A','create-invite',{id:crypto.randomUUID(),...options});assert.equal(r.status,200,JSON.stringify(r.value));trip=r.value.trip;return r.value.invitationToken;};
   const joinAs=async(who,role,participantId=null)=>{const token=await invite();let r=await call(who,'join',{id:crypto.randomUUID(),token});assert.equal(r.status,200,JSON.stringify(r.value));const id=r.value.request.id;r=await act('A','approve-join',{id,role,participantId});assert.equal(r.status,200,JSON.stringify(r.value));trip=r.value.trip;return {token,actorId:(await get(who)).me.actorId};};
   const expense=(who,title='共同支出',amount=9000)=>act(who,'expense',{id:crypto.randomUUID(),title,amount,payerId:trip.members[0].id,date:'2026-09-22',category:'餐飲',mode:'equal',memberIds:trip.members.map(m=>m.id)});
   return {store,destination,call,get,act,invite,joinAs,expense,trip};
@@ -126,6 +126,94 @@ test('invitation expiry/revocation and CAS prevent reusing grants after removal'
   assert.equal((await f.call('B','join',{id:crypto.randomUUID(),token:joined.token})).value.request.status,'approved');assert.equal(await f.get('B'),undefined);
   // A write that already read authorization still loses its CAS after removal.
   assert.equal(await f.store.repo.update(validateTrip(stale),owner,stale.revision),0);
+});
+
+test('invitation options validate expiry and mode while legacy links remain single use',async t=>{
+  const f=await fixture(t),revision=(await f.get()).revision;
+  for(const options of [{reusable:'true'},{reusable:1},{reusable:null},{expiresAt:null},{expiresAt:'garbage'},{expiresAt:'2026-12-01'},{expiresAt:'2026-02-30T12:00:00.000Z'},{expiresAt:new Date(Date.now()-60000).toISOString()}]){
+    assert.equal((await f.act('A','create-invite',{id:crypto.randomUUID(),...options})).status,400,JSON.stringify(options));
+    assert.equal((await f.get()).revision,revision);
+  }
+  const token=await f.invite(),defaultInvite=(await f.get()).invitations.at(-1);
+  assert.equal(defaultInvite.reusable,false);
+  assert.ok(Math.abs(Date.parse(defaultInvite.expiresAt)-Date.now()-7*86400000)<10000);
+  const owner=await f.store.repo.account('A'),raw=await f.store.repo.get(f.trip.id,owner);
+  delete raw._access.invites.at(-1).reusable;
+  assert.equal(await f.store.repo.update(validateTrip(raw),owner,raw.revision,raw._access),1);
+  assert.equal((await f.get()).invitations.at(-1).reusable,false);
+  assert.equal((await f.call('B','join',{id:crypto.randomUUID(),token})).status,200);
+  assert.equal((await f.call('C','join',{id:crypto.randomUUID(),token})).status,409);
+  const expiresAt=new Date(Date.now()+3600000).toISOString();await f.invite({reusable:true,expiresAt});
+  assert.equal((await f.get()).invitations.at(-1).expiresAt,expiresAt);
+});
+
+test('reusable invitations accept multiple applicants with idempotent pending retries and individual approvals',async t=>{
+  const f=await fixture(t),token=await f.invite({reusable:true}),b=await f.call('B','join',{id:crypto.randomUUID(),token}),c=await f.call('C','join',{id:crypto.randomUUID(),token});
+  assert.equal(b.status,200);assert.equal(c.status,200);assert.notEqual(b.value.request.id,c.value.request.id);
+  let owner=await f.get();assert.equal(owner.joinRequests.length,2);assert.equal(owner.invitations.at(-1).used,false);
+  const beforeRetry=owner.revision;
+  const retry=await f.call('B','join',{id:crypto.randomUUID(),token});assert.deepEqual(retry.value,b.value);assert.equal((await f.get()).revision,beforeRetry);
+  assert.equal(await f.get('B'),undefined);assert.equal(await f.get('C'),undefined);
+  assert.equal((await f.call('B',`trips/${f.trip.id}/backup`)).status,404);
+  assert.equal((await f.act('A','approve-join',{id:b.value.request.id,role:'editor'})).status,200);
+  assert.equal((await f.get('B')).me.role,'editor');assert.equal(await f.get('C'),undefined);
+  assert.equal((await f.act('B','create-invite',{id:crypto.randomUUID(),reusable:true})).status,403);
+  assert.equal((await f.call('B','join',{id:crypto.randomUUID(),token})).status,409);
+  assert.equal((await f.act('A','reject-join',{id:c.value.request.id})).status,200);
+  assert.equal((await f.call('C','join',{id:c.value.request.id,token})).value.request.status,'rejected');
+  assert.equal((await f.call('C','join',{id:crypto.randomUUID(),token})).status,200);
+  const other=await f.invite({reusable:true});owner=await f.get();
+  assert.equal(owner.invitations.filter(i=>i.reusable&&!i.revoked).length,2,'creating another invite must retain the shared link');
+  assert.equal((await f.call('C','join',{id:crypto.randomUUID(),token:other})).status,409);
+  assert.equal((await f.call('D','join',{id:crypto.randomUUID(),token})).status,200);
+  assert.equal(JSON.stringify(await f.get('B')).includes('invitations'),false);
+});
+
+test('revoking a reusable link rejects all its pending applications and blocks further joins',async t=>{
+  const f=await fixture(t),token=await f.invite({reusable:true}),id=(await f.get()).invitations.at(-1).id;
+  const b=await f.call('B','join',{id:crypto.randomUUID(),token}),c=await f.call('C','join',{id:crypto.randomUUID(),token});
+  assert.equal((await f.act('A','revoke-invite',{id})).status,200);assert.deepEqual((await f.get()).joinRequests,[]);
+  for(const who of ['B','C','D'])assert.equal((await f.call(who,'join',{id:crypto.randomUUID(),token})).status,404);
+  assert.equal((await f.act('A','approve-join',{id:b.value.request.id,role:'viewer'})).status,409);
+  assert.equal((await f.act('A','approve-join',{id:c.value.request.id,role:'viewer'})).status,409);
+  for(const who of ['B','C'])assert.equal((await f.call(who,'state')).value.requests[0].status,'rejected');
+});
+
+test('expiration stops new shared-link applications but existing requests can still be reviewed',async t=>{
+  const f=await fixture(t),token=await f.invite({reusable:true,expiresAt:new Date(Date.now()+60000).toISOString()});
+  const request=await f.call('B','join',{id:crypto.randomUUID(),token});assert.equal(request.status,200);
+  const owner=await f.store.repo.account('A'),raw=await f.store.repo.get(f.trip.id,owner);
+  raw._access.invites.at(-1).expiresAt='2000-01-01T00:00:00.000Z';await f.store.repo.update(validateTrip(raw),owner,raw.revision,raw._access);
+  assert.equal((await f.call('C','join',{id:crypto.randomUUID(),token})).status,404);
+  assert.equal((await f.act('A','approve-join',{id:request.value.request.id,role:'viewer'})).status,200);
+  assert.equal((await f.get('B')).me.role,'viewer');
+});
+
+test('reusable joins keep CAS protection and reject another account’s request identifier',async t=>{
+  const f=await fixture(t),token=await f.invite({reusable:true}),id=crypto.randomUUID();
+  assert.equal((await f.call('B','join',{id,token})).status,200);
+  assert.equal((await f.call('C','join',{id,token})).status,409);
+  assert.equal((await f.get()).joinRequests.length,1);
+  let reads=0,release;const gate=new Promise(resolve=>{release=resolve;});
+  const repo={...f.store.repo,forInvitation:async tripId=>{const raw=await f.store.repo.forInvitation(tripId);if(++reads===2)release();await gate;return raw;}};
+  const target={...f.store,repo};
+  const results=await Promise.all(['C','D'].map(who=>f.call(who,'join',{id:crypto.randomUUID(),token},target)));
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+  assert.equal((await f.get()).joinRequests.length,2);
+  const lost=results[0].status===409?'C':'D';assert.equal((await f.call(lost,'join',{id:crypto.randomUUID(),token})).status,200);
+  assert.equal((await f.get()).joinRequests.length,3);
+});
+
+test('reusable invitations keep active-invite and pending-application capacity limits',async t=>{
+  const f=await fixture(t),token=await f.invite({reusable:true});
+  for(let i=0;i<20;i++)assert.equal((await f.call(`user-${i}`,'join',{id:crypto.randomUUID(),token})).status,200);
+  assert.equal((await f.call('overflow','join',{id:crypto.randomUUID(),token})).status,400);
+  const owner=await f.get();assert.equal(owner.joinRequests.length,20);
+  assert.equal((await f.call('user-0','join',{id:crypto.randomUUID(),token})).status,200,'retry remains available at capacity');
+  for(const request of owner.joinRequests)assert.equal((await f.act('A','reject-join',{id:request.id})).status,200);
+  for(let i=1;i<20;i++)await f.invite({reusable:true});
+  assert.equal((await f.act('A','create-invite',{id:crypto.randomUUID(),reusable:true})).status,400);
+  assert.equal((await f.get()).invitations.length,20);
 });
 
 test('repayment confirmation belongs to receiver; pending does not count and later corrections may reverse debt',async t=>{

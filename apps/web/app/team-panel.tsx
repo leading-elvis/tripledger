@@ -5,9 +5,31 @@ import { Choice } from './ledger-ui';
 export const roles={admin:'管理者',editor:'記帳成員',viewer:'僅檢視'};
 const companionOptions=(trip:Trip)=>trip.members.map(member=>({value:member.id,label:member.active===false?`${member.name}（已移除，可結清舊帳）`:member.name}));
 const companionName=(trip:Trip,id:string|null)=>{const member=trip.members.find(item=>item.id===id);return member?`${member.name}${member.active===false?'（已移除）':''}`:'未綁定財務旅伴';};
-type Send=(action:string,data:unknown)=>Promise<void>;
+type Send=(action:string,data:unknown)=>Promise<boolean>;
 type Report=(id:string,dirty:boolean)=>void;
 function useDraft(id:string,dirty:boolean,report:Report){useEffect(()=>{report(id,dirty);return()=>report(id,false);},[id,dirty,report]);}
+const localDateTime=(time:number)=>{const date=new Date(time);return new Date(time-date.getTimezoneOffset()*60000).toISOString().slice(0,16);};
+function InviteSettings({trip,busy,send,report}:{trip:Trip;busy:boolean;send:Send;report:Report}) {
+  const [reusable,setReusable]=useState(false),[expiresAt,setExpiresAt]=useState(()=>localDateTime(Date.now()+7*86400000));
+  const [dirty,setDirty]=useState(false),[error,setError]=useState('');
+  useDraft('invitation-settings',dirty,report);
+  const edit=()=>{setDirty(true);setError('');};
+  return <form className="form-stack invite-settings" onSubmit={async e=>{
+    e.preventDefault();setError('');
+    const expiry=new Date(expiresAt);
+    if(!expiresAt||!Number.isFinite(expiry.getTime())){setError('請指定有效的到期日期與時間');return;}
+    if(expiry.getTime()<=Date.now()){setError('到期時間必須晚於現在');return;}
+    if(await send('create-invite',{id:crypto.randomUUID(),reusable,expiresAt:expiry.toISOString()}))setDirty(false);
+  }}>
+    <fieldset className="invite-use-options" disabled={busy||trip.archived}><legend>使用方式</legend>
+      <label><input type="radio" name="invite-use" checked={!reusable} onChange={()=>{edit();setReusable(false);}}/><span><b>單次使用</b><small>供一個帳號申請</small></span></label>
+      <label><input type="radio" name="invite-use" checked={reusable} onChange={()=>{edit();setReusable(true);}}/><span><b>可多次使用</b><small>多位旅伴共用連結</small></span></label>
+    </fieldset>
+    <label className="field">到期日期與時間<input type="datetime-local" required value={expiresAt} disabled={busy||trip.archived} onChange={e=>{edit();setExpiresAt(e.target.value);}} aria-invalid={!!error} aria-describedby="invite-expiry-hint invite-settings-error"/><small id="invite-expiry-hint">預設 7 天後到期，可自行調整。依你的裝置時區（{Intl.DateTimeFormat().resolvedOptions().timeZone}）設定。</small></label>
+    <p id="invite-settings-error" className={error?'error':'sr-only'} role={error?'alert':undefined}>{error}</p>
+    <button className="primary" disabled={busy||trip.archived}>{busy?'正在處理…':'建立邀請連結'}</button>
+  </form>;
+}
 function Approval({request,trip,busy,send,report}:{request:JoinRequest;trip:Trip;busy:boolean;send:Send;report:Report}) {
   const [role,setRole]=useState('editor'),[participantId,setParticipant]=useState('__unbound__'),[revision,setRevision]=useState(trip.revision);const stale=revision!==trip.revision;
   useDraft(request.id,role!=='editor'||participantId!=='__unbound__',report);
@@ -27,7 +49,7 @@ export function TeamPanel({trip,mode,busy,inviteLink,send,onDirtyChange}:{trip:T
   const report=useCallback<Report>((id,dirty)=>{if(dirty)drafts.current.add(id);else drafts.current.delete(id);onDirtyChange?.(drafts.current.size>0);},[onDirtyChange]);
   const admin=trip.me.role==='admin';
   return <section className="panel"><div className="section-head"><h2>共同記帳</h2><span className="pill">你的權限：{roles[trip.me.role]}</span></div><p className="muted">登入帳號需經管理者核准才能查看帳本。財務旅伴可不登入；綁定後才能以該旅伴身分申報或確認還款。</p>{mode==='standalone'?<p className="notice">此自架版本目前採單一管理者登入。來源的成員歷史會保留，但原登入與邀請不會自動恢復。</p>:<>
-    {admin&&<><div className="team-invite"><h3>邀請旅伴</h3><p className="small muted">連結 7 天內有效，只能申請一次。請自行分享給對方，核對申請人後再核准。新還款須由收款方確認。</p><button className="primary" disabled={busy||trip.archived} onClick={()=>void send('create-invite',{id:crypto.randomUUID()})}>建立邀請連結</button>{inviteLink&&<label className="field">邀請連結（僅這次顯示）<input readOnly value={inviteLink} onFocus={e=>e.currentTarget.select()}/><button type="button" className="secondary" onClick={async()=>{try{await navigator.clipboard.writeText(inviteLink);}catch{ /* The selectable field is the manual-copy fallback. */ }}}>複製邀請連結</button><small>若無法自動複製，請在欄位全選並複製。</small></label>}{trip.invitations?.filter(i=>!i.revoked&&!i.used&&Date.parse(i.expiresAt)>Date.now()).map(i=><div className="row" key={i.id}><span className="small">有效至 {new Date(i.expiresAt).toLocaleString('zh-TW')}</span><button className="secondary" disabled={busy} onClick={()=>void send('revoke-invite',{id:i.id})}>撤銷邀請</button></div>)}</div>
+    {admin&&<><div className="team-invite"><h3>邀請旅伴</h3><p className="small muted">選擇單次或多次使用，再設定連結到期時間。持連結者登入後仍須經你核准，才能查看帳本。</p><InviteSettings trip={trip} busy={busy} send={send} report={report}/>{inviteLink&&<label className="field">邀請連結（僅這次顯示）<input readOnly value={inviteLink} onFocus={e=>e.currentTarget.select()}/><button type="button" className="secondary" onClick={async()=>{try{await navigator.clipboard.writeText(inviteLink);}catch{ /* The selectable field is the manual-copy fallback. */ }}}>複製邀請連結</button><small>若無法自動複製，請在欄位全選並複製。</small></label>}{trip.invitations?.filter(i=>!i.revoked&&(i.reusable||!i.used)&&Date.parse(i.expiresAt)>Date.now()).map(i=><div className="invite-entry" key={i.id}><span className="small"><b>{i.reusable?'可多次使用':'單次使用'}</b><br/>有效至 {new Date(i.expiresAt).toLocaleString('zh-TW')}</span><button className="secondary" disabled={busy} onClick={()=>void send('revoke-invite',{id:i.id})}>撤銷邀請</button></div>)}<p className="small muted">到期後停止新申請；撤銷會同時拒絕該連結的待核准申請。請核對申請人後再核准。</p></div>
     {!!trip.joinRequests?.length&&<div className="team-section"><h3>等待核准（{trip.joinRequests.length}）</h3>{trip.joinRequests.map(r=><Approval key={r.id} request={r} trip={trip} busy={busy} send={send} report={report}/>)}</div>}</>}
     <div className="team-section"><h3>帳本成員</h3>{!trip.me.actorId&&admin&&<p className="notice">你是此帳本的管理者。建立邀請後即可設定自己對應的旅伴；匯入來源的成員需重新邀請。</p>}{trip.teamMembers.map(p=><Person key={p.id} person={p} trip={trip} busy={busy} send={send} report={report}/>)}</div>
     {!trip.me.isOwner&&<button className="secondary danger-text" disabled={busy} onClick={()=>void send('leave',{id:trip.me.actorId})}>退出此帳本</button>}

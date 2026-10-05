@@ -8,4 +8,4 @@ export type TeamActor = {id:string;name:string;role:'admin'|'editor'|'viewer';pa
 export type JoinRequest = {id:string;name:string;email:string;createdAt:string};
 export type MyAccess = {role:'admin'|'editor'|'viewer';actorId:string|null;participantId:string|null;isOwner:boolean};
 export type Trip = { id: string; name: string; currency: string; revision: number; archived:boolean;history:HistoryEntry[]; members: Member[]; expenses: Expense[]; repayments: Repayment[]; createdAt: string; updatedAt: string;
-  team:{enabled:boolean;actors:TeamActor[];events:{id:string;action:string;actorId:string|null;targetId:string;at:string;detail:string}[]};me:MyAccess;teamMembers:(TeamActor&{connected:boolean;isOwner:boolean})[];invitations?:{id:string;expiresAt:string;revoked:boolean;used:boolean}[];joinRequests?:JoinRequest[]};
+  team:{enabled:boolean;actors:TeamActor[];events:{id:string;action:string;actorId:string|null;targetId:string;at:string;detail:string}[]};me:MyAccess;teamMembers:(TeamActor&{connected:boolean;isOwner:boolean})[];invitations?:{id:string;expiresAt:string;revoked:boolean;used:boolean;reusable:boolean}[];joinRequests?:JoinRequest[]};

@@ -14,7 +14,7 @@ export function publicTrip(trip,account) {
   const clean=validateTrip(trip),me=memberOf({...trip,team:clean.team},account),access=accessOf(trip);
   const activeIds=new Set(access.bindings.map(b=>b.actorId));
   return {...clean,revision:trip.revision,me,teamMembers:clean.team.actors.map(a=>({...a,connected:activeIds.has(a.id),isOwner:access.bindings.some(b=>b.actorId===a.id&&b.accountId===trip._owner)})),
-    ...(me.role==='admin'?{invitations:access.invites.map(({id,expiresAt,revoked,usedBy})=>({id,expiresAt,revoked,used:!!usedBy})),joinRequests:access.requests.filter(r=>r.status==='pending').map(({id,name,email,createdAt})=>({id,name,email,createdAt}))}:{})};
+    ...(me.role==='admin'?{invitations:access.invites.map(({id,expiresAt,revoked,usedBy,reusable})=>({id,expiresAt,revoked,used:!!usedBy,reusable:reusable===true})),joinRequests:access.requests.filter(r=>r.status==='pending').map(({id,name,email,createdAt})=>({id,name,email,createdAt}))}:{})};
 }
 export function prepareActor(raw,account,profile={}) {
   const trip=validateTrip(raw),access=accessOf(raw),me=memberOf({...raw,team:trip.team},account);
@@ -42,11 +42,17 @@ export async function changeAccess(raw,account,profile,action,input) {
   ensure(critical||['change-member','revoke-invite','reject-join'].includes(action)||!trip.archived,'封存旅程不能新增邀請或成員',409);
   let token;
   if(action==='create-invite') {
-    access.invites=access.invites.filter(i=>!i.revoked&&!i.usedBy&&Date.parse(i.expiresAt)>Date.now());
+    ensure(input.reusable===undefined||typeof input.reusable==='boolean','請選擇單次或多次使用');
+    const reusable=input.reusable===true,currentTime=Date.now();
+    const expiresAt=input.expiresAt===undefined?new Date(currentTime+7*86400000).toISOString():input.expiresAt;
+    ensure(typeof expiresAt==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(expiresAt)&&Number.isFinite(Date.parse(expiresAt)),'請指定有效的到期日期與時間');
+    ensure(new Date(expiresAt).toISOString()===expiresAt,'請指定有效的到期日期與時間');
+    ensure(Date.parse(expiresAt)>currentTime,'到期時間必須晚於現在');
+    access.invites=access.invites.filter(i=>!i.revoked&&(i.reusable===true||!i.usedBy)&&Date.parse(i.expiresAt)>currentTime);
     ensure(access.invites.length<20&&access.requests.filter(r=>r.status==='pending').length<20,'請先處理現有邀請與申請');
     ensure(trip.team.actors.length<80&&trip.team.events.length<270,'成員歷史已接近容量上限，請先備份',413);
     const id=uuid(input.id);ensure(!access.invites.some(i=>i.id===id),"邀請已建立，若遺失連結請撤銷後重建",409);token=`${trip.id}.${crypto.randomUUID()}.${crypto.randomUUID()}`;
-    access.invites.push({id,hash:await sha256(new TextEncoder().encode(token)),expiresAt:new Date(Date.now()+7*86400000).toISOString(),revoked:false,usedBy:null});
+    access.invites.push({id,hash:await sha256(new TextEncoder().encode(token)),expiresAt,reusable,revoked:false,usedBy:null});
     if(!trip.team.enabled){trip.team.enabled=true;event(trip,me,'enable',me.actorId,'啟用共同記帳；新的還款須確認');}
   }else if(action==='revoke-invite') {
     const invitation=access.invites.find(i=>i.id===input.id);ensure(invitation,'找不到邀請',404);invitation.revoked=true;
@@ -82,13 +88,17 @@ export async function requestJoin(repo,account,profile,input) {
   const trip=await repo.forInvitation(uuid(input.token.split('.')[0]));ensure(trip,'邀請無效或已過期',404);
   const access=accessOf(trip),hash=await sha256(new TextEncoder().encode(input.token));
   const invite=access.invites.find(i=>i.hash===hash&&!i.revoked&&Date.parse(i.expiresAt)>Date.now());ensure(invite,'邀請無效或已過期',404);
-  if(invite.usedBy===account){const r=access.requests.find(r=>r.inviteId===invite.id&&r.accountId===account);ensure(r,'邀請已使用，請向管理者取得新的邀請',409);return {request:{id:r.id,tripName:trip.name,status:r.status}};}
-  ensure(!invite.usedBy,'邀請已使用',409);ensure(!trip.archived,'此旅程已封存',409);
+  const reusable=invite.reusable===true,previous=access.requests.find(r=>r.inviteId===invite.id&&r.accountId===account);
+  if(!reusable&&invite.usedBy===account||reusable&&previous&&(previous.status==='pending'||previous.id===input.id)){
+    ensure(previous,'邀請已使用，請向管理者取得新的邀請',409);return {request:{id:previous.id,tripName:trip.name,status:previous.status}};
+  }
+  ensure(reusable||!invite.usedBy,'邀請已使用',409);ensure(!trip.archived,'此旅程已封存',409);
   ensure(trip._owner!==account&&!access.bindings.some(b=>b.accountId===account),'你已是帳本成員',409);
   ensure(!access.requests.some(r=>r.accountId===account&&r.status==='pending'),'你已有待核准申請',409);
+  const id=uuid(input.id);ensure(!access.requests.some(r=>r.id===id),'申請識別碼已使用，請重試',409);
   access.requests=access.requests.filter(r=>r.status==='pending');ensure(access.requests.length<20,'此帳本的待核准申請已滿');
-  const request={id:uuid(input.id),inviteId:invite.id,accountId:account,name:label(String(profile.name||input.name||'申請者').slice(0,80)),email:typeof profile.email==='string'?profile.email.slice(0,254):'',status:'pending',createdAt:now()};
-  access.requests.push(request);invite.usedBy=account;
+  const request={id,inviteId:invite.id,accountId:account,name:label(String(profile.name||input.name||'申請者').slice(0,80)),email:typeof profile.email==='string'?profile.email.slice(0,254):'',status:'pending',createdAt:now()};
+  access.requests.push(request);if(!reusable)invite.usedBy=account;
   ensure(await repo.update(validateTrip(trip),trip._owner,trip.revision,access),'邀請已更新，請重試',409);
   return {request:{id:request.id,tripName:trip.name,status:'pending'}};
 }
